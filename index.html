@@ -1925,47 +1925,5 @@
         function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
         function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
     </script>
-    // Hàm tự động tải dữ liệu từ database.json trên Render về khi mở trang
-        function loadServerData() {
-            fetch('/api/data')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.classes && data.classes.length > 0) state.classes = data.classes;
-                    if (data.exams && data.exams.length > 0) state.exams = data.exams;
-                    if (data.grades) state.gradeBook = data.grades;
-                    
-                    if (state.role === 'teacher' && state.teacherLoggedIn) {
-                        renderTeacherExams();
-                        renderClassSelectors();
-                        renderClassGradeBook();
-                        renderManageClassesTable();
-                    } else if (state.role === 'student' && state.currentStudent) {
-                        renderStudentExams();
-                    }
-                })
-                .catch(err => console.error("Lỗi đồng bộ dữ liệu:", err));
-        }
-
-        // Hàm tự động lưu dữ liệu lên máy chủ Flask để đồng bộ mọi thiết bị
-        function saveServerData() {
-            const payload = {
-                classes: state.classes,
-                exams: state.exams,
-                grades: state.gradeBook
-            };
-            localStorage.setItem('thayduoc_gradebook', JSON.stringify(state.gradeBook));
-            localStorage.setItem('thayduoc_classes', JSON.stringify(state.classes));
-            localStorage.setItem('thayduoc_exams', JSON.stringify(state.exams));
-
-            fetch('/api/data', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            }).catch(err => console.error("Lỗi khi lưu dữ liệu lên server:", err));
-        }
-
-        function saveGradeBookToStorage() { saveServerData(); }
-        function saveClassesToStorage() { saveServerData(); }
-        function saveExamsToStorage() { saveServerData(); }
 </body>
 </html>
