@@ -1366,11 +1366,11 @@ function displayExamFileForCode(examId, code) {
             
             document.getElementById('view-exam-file-title').innerHTML = `<i class="fa-solid fa-file-lines text-indigo-600 mr-2"></i>Đề Gốc: ${exam.title} (Mã: ${code})`;
             
-            // Lấy số lượng câu linh hoạt từ mảng hoặc từ cấu trúc structure
-            const mcqCount = data.mcq ? data.mcq.length : (structure.mcq || 0);
-            const tfCount = data.trueFalse ? data.trueFalse.length : (structure.trueFalse || 0);
-            const saCount = data.shortAnswer ? data.shortAnswer.length : (structure.shortAnswer || 0);
-            const essayCount = data.essay ? data.essay.length : (structure.essay || 0);
+            // Lấy chính xác số câu theo cấu hình (structure) mà giáo viên đã chọn khi tạo đề
+            const mcqCount = structure.mcq !== undefined ? structure.mcq : 0;
+            const tfCount = structure.trueFalse !== undefined ? structure.trueFalse : 0;
+            const saCount = structure.shortAnswer !== undefined ? structure.shortAnswer : 0;
+            const essayCount = structure.essay !== undefined ? structure.essay : 0;
 
             document.getElementById('view-exam-file-container').innerHTML = `
                 <div class="p-6 bg-white rounded-xl shadow-inner border text-left space-y-4 max-h-[70vh] overflow-y-auto">
@@ -1382,22 +1382,15 @@ function displayExamFileForCode(examId, code) {
                     <div class="space-y-3">
                         <div class="p-4 bg-indigo-50/60 rounded-xl border border-indigo-100">
                             <h5 class="font-bold text-indigo-800 text-sm mb-1">PHẦN I: Trắc nghiệm nhiều lựa chọn (${mcqCount} câu)</h5>
-                            <p class="text-xs text-slate-600">Đã cấu hình danh sách đáp án trắc nghiệm chuẩn cho mã đề ${code}.</p>
                         </div>
-
                         <div class="p-4 bg-violet-50/60 rounded-xl border border-violet-100">
                             <h5 class="font-bold text-violet-800 text-sm mb-1">PHẦN II: Trắc nghiệm Đúng / Sai (${tfCount} câu)</h5>
-                            <p class="text-xs text-slate-600">Đã cấu hình hệ thống câu hỏi Đúng/Sai theo chuẩn cấu trúc mới.</p>
                         </div>
-
                         <div class="p-4 bg-emerald-50/60 rounded-xl border border-emerald-100">
                             <h5 class="font-bold text-emerald-800 text-sm mb-1">PHẦN III: Trắc nghiệm trả lời ngắn (${saCount} câu)</h5>
-                            <p class="text-xs text-slate-600">Đã cấu hình các câu hỏi yêu cầu điền đáp án ngắn.</p>
                         </div>
-
                         <div class="p-4 bg-amber-50/60 rounded-xl border border-amber-100">
                             <h5 class="font-bold text-amber-800 text-sm mb-1">PHẦN IV: Tự luận (${essayCount} câu)</h5>
-                            <p class="text-xs text-slate-600">Học sinh trình bày bài giải tự luận trực tiếp hoặc tải file/ảnh lên hệ thống.</p>
                         </div>
                     </div>
                 </div>
@@ -1503,8 +1496,8 @@ function openTeacherViewSolutionFile(examId) {
                         tfKeys = ansRows[idx].querySelector('.ans-tf').value.trim().split(',').map(k => k.trim().toUpperCase());
                         shortKeys = ansRows[idx].querySelector('.ans-short').value.trim().split(';').map(k => k.trim());
                     }
-                    codesMap[codeInput] = { fileUrl, fileType, mcq: mcqKeys, tf: tfKeys, short: shortKeys };
-                }
+// Đoạn trong hàm uploadAndCreateMultiCodeExam khi đẩy vào mảng codes:
+codesMap[codeInput] = { fileUrl, fileType, mcq: mcqKeys, trueFalse: tfKeys, shortAnswer: shortKeys }; }
             });
 
             state.exams.push({ id: Date.now(), subject, grade, targetClass, category, title, duration, solutionFileUrl, solutionFileType, structure: { mcq, trueFalse: tf, shortAnswer: short, essay }, codes: codesMap });
