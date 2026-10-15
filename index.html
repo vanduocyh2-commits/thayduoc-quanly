@@ -1968,9 +1968,29 @@ window.addEventListener('DOMContentLoaded', () => {
             }).catch(err => console.error("Lỗi khi lưu dữ liệu lên server:", err));
         }
 
-        function saveGradeBookToStorage() { saveServerData(); }
+function saveGradeBookToStorage() { saveServerData(); }
         function saveClassesToStorage() { saveServerData(); }
         function saveExamsToStorage() { saveServerData(); }
-</script>
+
+        // BẮT BUỘC PHẢI CÓ ĐOẠN NÀY ĐỂ KÍCH HOẠT TẢI DỮ LIỆU KHI MỞ TRANG
+        window.addEventListener('DOMContentLoaded', () => {
+            loadServerData(); // Gọi hàm lấy dữ liệu từ server về ngay khi mở trang
+            
+            try {
+                const savedPass = localStorage.getItem('thayduoc_pass');
+                if(savedPass) { state.teacherPass = savedPass; }
+            } catch(e) {}
+
+            try {
+                const savedClasses = localStorage.getItem('thayduoc_classes');
+                if(savedClasses) { state.classes = JSON.parse(savedClasses); }
+            } catch(e) {}
+
+            try {
+                const savedExams = localStorage.getItem('thayduoc_exams');
+                if(savedExams) { state.exams = JSON.parse(savedExams); }
+            } catch(e) {}
+        });
+    </script>
 </body>
 </html>
