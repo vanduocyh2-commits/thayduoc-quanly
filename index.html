@@ -1985,7 +1985,7 @@ function renderStudentExamContent(examId, code) {
         function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
     // Hàm tự động tải dữ liệu từ database.json trên Render về khi mở trang
 function loadServerData() {
-            // Ưu tiên nạp dữ liệu từ localStorage ngay lập tức để khi F5 không bị mất đề
+            // Bước 1: Lấy ngay dữ liệu từ localStorage lên trước để hiển thị tức thì khi F5
             try {
                 const savedClasses = localStorage.getItem('thayduoc_classes');
                 if(savedClasses) { state.classes = JSON.parse(savedClasses); }
@@ -1995,35 +1995,55 @@ function loadServerData() {
                 if(savedGrades) { state.gradeBook = JSON.parse(savedGrades); }
             } catch(e) {}
 
-            // Sau đó gọi API đồng bộ ngầm từ server Render về
+            // Vẽ giao diện ngay lập tức từ dữ liệu local
+            if (state.role === 'teacher' && state.teacherLoggedIn) {
+                renderTeacherExams();
+                renderClassSelectors();
+                renderClassGradeBook();
+                renderManageClassesTable();
+            } else if (state.role === 'student' && state.currentStudent) {
+                renderStudentExams();
+            }
+
+            // Bước 2: Đồng bộ ngầm với server (chỉ cập nhật nếu server có dữ liệu hợp lệ và nhiều hơn hoặc bằng local)
             fetch('/api/data')
                 .then(res => res.json())
                 .then(data => {
+                    let hasUpdate = false;
+                    
                     if (data.classes && data.classes.length > 0) {
                         state.classes = data.classes;
                         localStorage.setItem('thayduoc_classes', JSON.stringify(data.classes));
+                        hasUpdate = true;
                     }
+                    
+                    // QUAN TRỌNG: Chỉ nhận dữ liệu exams từ server nếu server có chứa đề thi, tránh bị mất đề khi F5
                     if (data.exams && data.exams.length > 0) {
                         state.exams = data.exams;
                         localStorage.setItem('thayduoc_exams', JSON.stringify(data.exams));
+                        hasUpdate = true;
                     }
+                    
                     if (data.grades && data.grades.length > 0) {
                         state.gradeBook = data.grades;
                         localStorage.setItem('thayduoc_gradebook', JSON.stringify(data.grades));
+                        hasUpdate = true;
                     }
                     
-                    if (state.role === 'teacher' && state.teacherLoggedIn) {
-                        renderTeacherExams();
-                        renderClassSelectors();
-                        renderClassGradeBook();
-                        renderManageClassesTable();
-                    } else if (state.role === 'student' && state.currentStudent) {
-                        renderStudentExams();
+                    // Nếu có dữ liệu mới từ server, tiến hành vẽ lại giao diện
+                    if (hasUpdate) {
+                        if (state.role === 'teacher' && state.teacherLoggedIn) {
+                            renderTeacherExams();
+                            renderClassSelectors();
+                            renderClassGradeBook();
+                            renderManageClassesTable();
+                        } else if (state.role === 'student' && state.currentStudent) {
+                            renderStudentExams();
+                        }
                     }
                 })
                 .catch(err => console.error("Lỗi đồng bộ dữ liệu:", err));
         }
-
         // Hàm tự động lưu dữ liệu lên máy chủ Flask để đồng bộ mọi thiết bị
         function saveServerData() {
             const payload = {
