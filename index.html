@@ -1946,6 +1946,8 @@ window.addEventListener('DOMContentLoaded', () => {
                     } else if (state.role === 'student' && state.currentStudent) {
                         renderStudentExams();
                     }
+                    const welcomeCard = document.getElementById('student-welcome-card');
+                    if (welcomeCard) welcomeCard.classList.add('hidden');
                 })
                 .catch(err => console.error("Lỗi đồng bộ dữ liệu:", err));
         }
