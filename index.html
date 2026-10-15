@@ -699,19 +699,14 @@
             studentHistory: []
         };
 
-window.addEventListener('DOMContentLoaded', () => {
-            loadServerData(); // Gọi hàm lấy dữ liệu mới nhất từ server về ngay khi mở trang
-            
-            try {
-                const savedPass = localStorage.getItem('thayduoc_pass');
-                if(savedPass) { state.teacherPass = savedPass; }
-            } catch(e) {}
-
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedGrades = localStorage.getItem('thayduoc_gradebook');
+            if(savedGrades) { try { state.gradeBook = JSON.parse(savedGrades); } catch(e) {} }
             const savedClasses = localStorage.getItem('thayduoc_classes');
             if(savedClasses) { try { state.classes = JSON.parse(savedClasses); } catch(e) {} }
             const savedExams = localStorage.getItem('thayduoc_exams');
             if(savedExams) { try { state.exams = JSON.parse(savedExams); } catch(e) {} }
-          
+            
             const savedPass = localStorage.getItem('thayduoc_pass');
             if(savedPass) { state.teacherPass = savedPass; }
             const savedUser = localStorage.getItem('thayduoc_user');
@@ -1359,57 +1354,17 @@ window.addEventListener('DOMContentLoaded', () => {
             displayExamFileForCode(examId, code);
         }
 
-function displayExamFileForCode(examId, code) {
+        function displayExamFileForCode(examId, code) {
             const exam = state.exams.find(e => e.id === examId);
-            const data = exam.codes && exam.codes[code] ? exam.codes[code] : {};
-            const structure = exam.structure || {};
-            
-            document.getElementById('view-exam-file-title').innerHTML = `<i class="fa-solid fa-file-lines text-indigo-600 mr-2"></i>Đề Gốc: ${exam.title} (Mã: ${code})`;
-            
-            // Lấy chính xác số câu theo cấu hình (structure) mà giáo viên đã chọn khi tạo đề
-            const mcqCount = structure.mcq !== undefined ? structure.mcq : 0;
-            const tfCount = structure.trueFalse !== undefined ? structure.trueFalse : 0;
-            const saCount = structure.shortAnswer !== undefined ? structure.shortAnswer : 0;
-            const essayCount = structure.essay !== undefined ? structure.essay : 0;
-
-            document.getElementById('view-exam-file-container').innerHTML = `
-                <div class="p-6 bg-white rounded-xl shadow-inner border text-left space-y-4 max-h-[70vh] overflow-y-auto">
-                    <div class="border-b pb-3">
-                        <h4 class="font-bold text-indigo-900 text-base">${exam.title} - Mã đề: ${code}</h4>
-                        <p class="text-xs text-slate-500 mt-1">Môn: ${exam.subject || 'Toán'} | Khối: ${exam.grade || '12'} | Thời gian: ${exam.duration} phút</p>
-                    </div>
-                    
-                    <div class="space-y-3">
-                        <div class="p-4 bg-indigo-50/60 rounded-xl border border-indigo-100">
-                            <h5 class="font-bold text-indigo-800 text-sm mb-1">PHẦN I: Trắc nghiệm nhiều lựa chọn (${mcqCount} câu)</h5>
-                        </div>
-                        <div class="p-4 bg-violet-50/60 rounded-xl border border-violet-100">
-                            <h5 class="font-bold text-violet-800 text-sm mb-1">PHẦN II: Trắc nghiệm Đúng / Sai (${tfCount} câu)</h5>
-                        </div>
-                        <div class="p-4 bg-emerald-50/60 rounded-xl border border-emerald-100">
-                            <h5 class="font-bold text-emerald-800 text-sm mb-1">PHẦN III: Trắc nghiệm trả lời ngắn (${saCount} câu)</h5>
-                        </div>
-                        <div class="p-4 bg-amber-50/60 rounded-xl border border-amber-100">
-                            <h5 class="font-bold text-amber-800 text-sm mb-1">PHẦN IV: Tự luận (${essayCount} câu)</h5>
-                        </div>
-                    </div>
-                </div>
-            `;
+            const data = exam.codes[code];
+            document.getElementById('view-exam-file-title').innerHTML = `<i class="fa-solid fa-file-pdf text-indigo-600 mr-2"></i>Đề Gốc: ${exam.title} (Mã: ${code})`;
+            document.getElementById('view-exam-file-container').innerHTML = data.fileType === 'image' ? `<img src="${data.fileUrl}" class="max-w-full max-h-full object-contain rounded shadow">` : `<iframe src="${data.fileUrl}#toolbar=1&view=FitH" class="w-full h-full border-0"></iframe>`;
         }
-function openTeacherViewSolutionFile(examId) {
+
+        function openTeacherViewSolutionFile(examId) {
             const exam = state.exams.find(e => e.id === examId);
             document.getElementById('view-solution-file-title').innerHTML = `<i class="fa-solid fa-book-open-reader text-violet-600 mr-2"></i>Lời Giải: ${exam.title}`;
-            
-            if (!exam.solutionFileUrl) {
-                document.getElementById('view-solution-file-container').innerHTML = `
-                    <div class="p-6 bg-white rounded-xl shadow-inner border text-center text-slate-500">
-                        <i class="fa-solid fa-file-circle-exclamation text-3xl mb-2 text-violet-500"></i>
-                        <p>Chưa có file lời giải chi tiết cho kỳ thi này.</p>
-                    </div>
-                `;
-            } else {
-                document.getElementById('view-solution-file-container').innerHTML = exam.solutionFileType === 'image' ? `<img src="${exam.solutionFileUrl}" class="max-w-full max-h-full object-contain rounded shadow">` : `<iframe src="${exam.solutionFileUrl}#toolbar=1&view=FitH" class="w-full h-full border-0"></iframe>`;
-            }
+            document.getElementById('view-solution-file-container').innerHTML = exam.solutionFileType === 'image' ? `<img src="${exam.solutionFileUrl}" class="max-w-full max-h-full object-contain rounded shadow">` : `<iframe src="${exam.solutionFileUrl}#toolbar=1&view=FitH" class="w-full h-full border-0"></iframe>`;
             openModal('modal-view-solution-file');
         }
 
@@ -1496,8 +1451,8 @@ function openTeacherViewSolutionFile(examId) {
                         tfKeys = ansRows[idx].querySelector('.ans-tf').value.trim().split(',').map(k => k.trim().toUpperCase());
                         shortKeys = ansRows[idx].querySelector('.ans-short').value.trim().split(';').map(k => k.trim());
                     }
-// Đoạn trong hàm uploadAndCreateMultiCodeExam khi đẩy vào mảng codes:
-codesMap[codeInput] = { fileUrl, fileType, mcq: mcqKeys, trueFalse: tfKeys, shortAnswer: shortKeys }; }
+                    codesMap[codeInput] = { fileUrl, fileType, mcq: mcqKeys, tf: tfKeys, short: shortKeys };
+                }
             });
 
             state.exams.push({ id: Date.now(), subject, grade, targetClass, category, title, duration, solutionFileUrl, solutionFileType, structure: { mcq, trueFalse: tf, shortAnswer: short, essay }, codes: codesMap });
@@ -1678,39 +1633,25 @@ codesMap[codeInput] = { fileUrl, fileType, mcq: mcqKeys, trueFalse: tfKeys, shor
             }
         }
 
-function renderStudentExamContent(examId, code) {
-            const exam = state.exams.find(e => e.id === examId);
-            if (!exam || !exam.codes[code]) return;
-            const data = exam.codes[code];
-
-            // Nếu chưa có fileUrl thì hiển thị trực tiếp form làm bài 4 phần chuẩn xác
-            const container = document.getElementById('student-exam-content-container'); // hoặc id container của học sinh
-            if (container) {
-                container.innerHTML = `
-                    <div class="p-4 space-y-4 text-left">
-                        <h3 class="font-bold text-indigo-900 text-base">${exam.title} - Mã đề: ${code}</h3>
-                        <div class="p-3 bg-indigo-50 rounded-xl text-xs font-semibold text-indigo-700">
-                            <p>Thời gian làm bài: ${exam.duration} phút</p>
-                        </div>
-                        <div class="space-y-3">
-                            <div class="p-3 bg-white border rounded-xl shadow-sm">
-                                <h4 class="font-bold text-slate-800 text-sm mb-2">Phần I: Trắc nghiệm nhiều lựa chọn (${data.mcq ? data.mcq.length : 0} câu)</h4>
-                                <p class="text-xs text-slate-500">Học sinh chọn đáp án A, B, C, D cho các câu hỏi.</p>
-                            </div>
-                            <div class="p-3 bg-white border rounded-xl shadow-sm">
-                                <h4 class="font-bold text-slate-800 text-sm mb-2">Phần II: Trắc nghiệm Đúng/Sai (${data.trueFalse ? data.trueFalse.length : 0} câu)</h4>
-                            </div>
-                            <div class="p-3 bg-white border rounded-xl shadow-sm">
-                                <h4 class="font-bold text-slate-800 text-sm mb-2">Phần III: Trắc nghiệm trả lời ngắn (${data.shortAnswer ? data.shortAnswer.length : 0} câu)</h4>
-                            </div>
-                            <div class="p-3 bg-white border rounded-xl shadow-sm">
-                                <h4 class="font-bold text-slate-800 text-sm mb-2">Phần IV: Tự luận (${data.essay ? data.essay.length : 0} câu)</h4>
-                            </div>
-                        </div>
+        function renderStudentExams() {
+            const container = document.getElementById('student-exams-list');
+            if(!state.currentStudent) return;
+            let availableExams = state.exams.filter(e => e.targetClass === 'ALL' || (e.targetClass && e.targetClass.toLowerCase() === state.currentStudent.class.toLowerCase()));
+            if(availableExams.length === 0) { container.innerHTML = `<div class="col-span-2 text-center py-8 text-slate-400">Chưa có đề thi cho lớp ${state.currentStudent.class}.</div>`; return; }
+            container.innerHTML = availableExams.map(e => `
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+                    <div class="flex gap-2">
+                        <span class="bg-indigo-50 text-indigo-700 font-bold px-2.5 py-1 rounded text-xs">${e.subject || 'Môn Toán'}</span>
+                        <span class="bg-violet-50 text-violet-700 font-bold px-2.5 py-1 rounded text-xs">${e.grade || 'Khối 12'}</span>
+                        <span class="bg-emerald-50 text-emerald-700 font-bold px-2.5 py-1 rounded text-xs">Lớp: ${e.targetClass}</span>
                     </div>
-                `;
-            }
+                    <h3 class="font-bold text-slate-800 text-base">${e.title}</h3>
+                    <p class="text-xs text-slate-500">Thời gian: <strong>${e.duration} phút</strong> | Mã đề: <strong>${Object.keys(e.codes).join(', ')}</strong></p>
+                    <button onclick="promptSelectCode(${e.id})" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-sm font-semibold shadow">Vào Làm Bài</button>
+                </div>
+            `).join('');
         }
+
         function promptSelectCode(examId) {
             state.activeExamId = examId;
             const exam = state.exams.find(e => e.id === examId);
@@ -1983,108 +1924,48 @@ function renderStudentExamContent(examId, code) {
 
         function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
         function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+    </script>
     // Hàm tự động tải dữ liệu từ database.json trên Render về khi mở trang
-function loadServerData() {
-            // Bước 1: Lấy ngay dữ liệu từ localStorage lên trước để hiển thị tức thì khi F5
-            try {
-                const savedClasses = localStorage.getItem('thayduoc_classes');
-                if(savedClasses) { state.classes = JSON.parse(savedClasses); }
-                const savedExams = localStorage.getItem('thayduoc_exams');
-                if(savedExams) { state.exams = JSON.parse(savedExams); }
-                const savedGrades = localStorage.getItem('thayduoc_gradebook');
-                if(savedGrades) { state.gradeBook = JSON.parse(savedGrades); }
-            } catch(e) {}
-
-            // Vẽ giao diện ngay lập tức từ dữ liệu local
-            if (state.role === 'teacher' && state.teacherLoggedIn) {
-                renderTeacherExams();
-                renderClassSelectors();
-                renderClassGradeBook();
-                renderManageClassesTable();
-            } else if (state.role === 'student' && state.currentStudent) {
-                renderStudentExams();
-            }
-
-            // Bước 2: Đồng bộ ngầm với server (chỉ cập nhật nếu server có dữ liệu hợp lệ và nhiều hơn hoặc bằng local)
+        function loadServerData() {
             fetch('/api/data')
                 .then(res => res.json())
                 .then(data => {
-                    let hasUpdate = false;
+                    if (data.classes && data.classes.length > 0) state.classes = data.classes;
+                    if (data.exams && data.exams.length > 0) state.exams = data.exams;
+                    if (data.grades) state.gradeBook = data.grades;
                     
-                    if (data.classes && data.classes.length > 0) {
-                        state.classes = data.classes;
-                        localStorage.setItem('thayduoc_classes', JSON.stringify(data.classes));
-                        hasUpdate = true;
-                    }
-                    
-                    // QUAN TRỌNG: Chỉ nhận dữ liệu exams từ server nếu server có chứa đề thi, tránh bị mất đề khi F5
-                    if (data.exams && data.exams.length > 0) {
-                        state.exams = data.exams;
-                        localStorage.setItem('thayduoc_exams', JSON.stringify(data.exams));
-                        hasUpdate = true;
-                    }
-                    
-                    if (data.grades && data.grades.length > 0) {
-                        state.gradeBook = data.grades;
-                        localStorage.setItem('thayduoc_gradebook', JSON.stringify(data.grades));
-                        hasUpdate = true;
-                    }
-                    
-                    // Nếu có dữ liệu mới từ server, tiến hành vẽ lại giao diện
-                    if (hasUpdate) {
-                        if (state.role === 'teacher' && state.teacherLoggedIn) {
-                            renderTeacherExams();
-                            renderClassSelectors();
-                            renderClassGradeBook();
-                            renderManageClassesTable();
-                        } else if (state.role === 'student' && state.currentStudent) {
-                            renderStudentExams();
-                        }
+                    if (state.role === 'teacher' && state.teacherLoggedIn) {
+                        renderTeacherExams();
+                        renderClassSelectors();
+                        renderClassGradeBook();
+                        renderManageClassesTable();
+                    } else if (state.role === 'student' && state.currentStudent) {
+                        renderStudentExams();
                     }
                 })
                 .catch(err => console.error("Lỗi đồng bộ dữ liệu:", err));
         }
+
         // Hàm tự động lưu dữ liệu lên máy chủ Flask để đồng bộ mọi thiết bị
-function saveServerData() {
-    const payload = {
-        classes: state.classes,
-        exams: state.exams,
-        grades: state.gradeBook
-    };
-    // Lưu ngay vào bộ nhớ trình duyệt để chống mất khi F5
-    localStorage.setItem('thayduoc_gradebook', JSON.stringify(state.gradeBook));
-    localStorage.setItem('thayduoc_classes', JSON.stringify(state.classes));
-    localStorage.setItem('thayduoc_exams', JSON.stringify(state.exams));
+        function saveServerData() {
+            const payload = {
+                classes: state.classes,
+                exams: state.exams,
+                grades: state.gradeBook
+            };
+            localStorage.setItem('thayduoc_gradebook', JSON.stringify(state.gradeBook));
+            localStorage.setItem('thayduoc_classes', JSON.stringify(state.classes));
+            localStorage.setItem('thayduoc_exams', JSON.stringify(state.exams));
 
-    // Gửi ngầm lên server
-    fetch('/api/data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    }).catch(err => console.error("Lỗi khi lưu dữ liệu lên server:", err));
-}
+            fetch('/api/data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }).catch(err => console.error("Lỗi khi lưu dữ liệu lên server:", err));
+        }
 
-function saveGradeBookToStorage() { saveServerData(); }
+        function saveGradeBookToStorage() { saveServerData(); }
         function saveClassesToStorage() { saveServerData(); }
         function saveExamsToStorage() { saveServerData(); }
-
-        // BẮT BUỘC PHẢI CÓ ĐOẠN NÀY ĐỂ KÍCH HOẠT TẢI DỮ LIỆU KHI MỞ TRANG
-window.addEventListener('DOMContentLoaded', () => {
-    try {
-        const savedExams = localStorage.getItem('thayduoc_exams');
-        if(savedExams) { state.exams = JSON.parse(savedExams); }
-        const savedClasses = localStorage.getItem('thayduoc_classes');
-        if(savedClasses) { state.classes = JSON.parse(savedClasses); }
-        const savedGrades = localStorage.getItem('thayduoc_gradebook');
-        if(savedGrades) { state.gradeBook = JSON.parse(savedGrades); }
-    } catch(e) {}
-
-    // Vẽ giao diện ngay lập tức
-    renderTeacherExams();
-    
-    // Sau đó mới gọi hàm đồng bộ ngầm từ server
-    loadServerData();
-});
-    </script>
 </body>
 </html>
