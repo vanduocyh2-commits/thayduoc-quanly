@@ -1382,10 +1382,20 @@ function displayExamFileForCode(examId, code) {
             }
         }
 
-        function openTeacherViewSolutionFile(examId) {
+function openTeacherViewSolutionFile(examId) {
             const exam = state.exams.find(e => e.id === examId);
             document.getElementById('view-solution-file-title').innerHTML = `<i class="fa-solid fa-book-open-reader text-violet-600 mr-2"></i>Lời Giải: ${exam.title}`;
-            document.getElementById('view-solution-file-container').innerHTML = exam.solutionFileType === 'image' ? `<img src="${exam.solutionFileUrl}" class="max-w-full max-h-full object-contain rounded shadow">` : `<iframe src="${exam.solutionFileUrl}#toolbar=1&view=FitH" class="w-full h-full border-0"></iframe>`;
+            
+            if (!exam.solutionFileUrl) {
+                document.getElementById('view-solution-file-container').innerHTML = `
+                    <div class="p-6 bg-white rounded-xl shadow-inner border text-center text-slate-500">
+                        <i class="fa-solid fa-file-circle-exclamation text-3xl mb-2 text-violet-500"></i>
+                        <p>Chưa có file lời giải chi tiết cho kỳ thi này.</p>
+                    </div>
+                `;
+            } else {
+                document.getElementById('view-solution-file-container').innerHTML = exam.solutionFileType === 'image' ? `<img src="${exam.solutionFileUrl}" class="max-w-full max-h-full object-contain rounded shadow">` : `<iframe src="${exam.solutionFileUrl}#toolbar=1&view=FitH" class="w-full h-full border-0"></iframe>`;
+            }
             openModal('modal-view-solution-file');
         }
 
