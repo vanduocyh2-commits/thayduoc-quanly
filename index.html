@@ -1361,10 +1361,17 @@ window.addEventListener('DOMContentLoaded', () => {
 
 function displayExamFileForCode(examId, code) {
             const exam = state.exams.find(e => e.id === examId);
-            const data = exam.codes[code];
+            const data = exam.codes && exam.codes[code] ? exam.codes[code] : {};
+            const structure = exam.structure || {};
+            
             document.getElementById('view-exam-file-title').innerHTML = `<i class="fa-solid fa-file-lines text-indigo-600 mr-2"></i>Đề Gốc: ${exam.title} (Mã: ${code})`;
             
-            // Hiển thị trực tiếp chi tiết nội dung các phần của đề thi thay vì dùng iframe
+            // Lấy số lượng câu linh hoạt từ mảng hoặc từ cấu trúc structure
+            const mcqCount = data.mcq ? data.mcq.length : (structure.mcq || 0);
+            const tfCount = data.trueFalse ? data.trueFalse.length : (structure.trueFalse || 0);
+            const saCount = data.shortAnswer ? data.shortAnswer.length : (structure.shortAnswer || 0);
+            const essayCount = data.essay ? data.essay.length : (structure.essay || 0);
+
             document.getElementById('view-exam-file-container').innerHTML = `
                 <div class="p-6 bg-white rounded-xl shadow-inner border text-left space-y-4 max-h-[70vh] overflow-y-auto">
                     <div class="border-b pb-3">
@@ -1374,22 +1381,22 @@ function displayExamFileForCode(examId, code) {
                     
                     <div class="space-y-3">
                         <div class="p-4 bg-indigo-50/60 rounded-xl border border-indigo-100">
-                            <h5 class="font-bold text-indigo-800 text-sm mb-1">PHẦN I: Trắc nghiệm nhiều lựa chọn (${data.mcq ? data.mcq.length : 0} câu)</h5>
+                            <h5 class="font-bold text-indigo-800 text-sm mb-1">PHẦN I: Trắc nghiệm nhiều lựa chọn (${mcqCount} câu)</h5>
                             <p class="text-xs text-slate-600">Đã cấu hình danh sách đáp án trắc nghiệm chuẩn cho mã đề ${code}.</p>
                         </div>
 
                         <div class="p-4 bg-violet-50/60 rounded-xl border border-violet-100">
-                            <h5 class="font-bold text-violet-800 text-sm mb-1">PHẦN II: Trắc nghiệm Đúng / Sai (${data.trueFalse ? data.trueFalse.length : 0} câu)</h5>
+                            <h5 class="font-bold text-violet-800 text-sm mb-1">PHẦN II: Trắc nghiệm Đúng / Sai (${tfCount} câu)</h5>
                             <p class="text-xs text-slate-600">Đã cấu hình hệ thống câu hỏi Đúng/Sai theo chuẩn cấu trúc mới.</p>
                         </div>
 
                         <div class="p-4 bg-emerald-50/60 rounded-xl border border-emerald-100">
-                            <h5 class="font-bold text-emerald-800 text-sm mb-1">PHẦN III: Trắc nghiệm trả lời ngắn (${data.shortAnswer ? data.shortAnswer.length : 0} câu)</h5>
+                            <h5 class="font-bold text-emerald-800 text-sm mb-1">PHẦN III: Trắc nghiệm trả lời ngắn (${saCount} câu)</h5>
                             <p class="text-xs text-slate-600">Đã cấu hình các câu hỏi yêu cầu điền đáp án ngắn.</p>
                         </div>
 
                         <div class="p-4 bg-amber-50/60 rounded-xl border border-amber-100">
-                            <h5 class="font-bold text-amber-800 text-sm mb-1">PHẦN IV: Tự luận (${data.essay ? data.essay.length : 0} câu)</h5>
+                            <h5 class="font-bold text-amber-800 text-sm mb-1">PHẦN IV: Tự luận (${essayCount} câu)</h5>
                             <p class="text-xs text-slate-600">Học sinh trình bày bài giải tự luận trực tiếp hoặc tải file/ảnh lên hệ thống.</p>
                         </div>
                     </div>
