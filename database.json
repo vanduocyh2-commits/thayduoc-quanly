@@ -15,32 +15,42 @@
       "solutionFileType": "pdf",
       "structure": {
         "mcq": 12,
-        "essay": 6
+        "trueFalse": 4,
+        "shortAnswer": 4,
+        "essay": 2
       },
       "codes": {
         "101": {
           "fileUrl": "",
           "fileType": "pdf",
           "mcq": ["D","C","C","A","B","D","C","A","A","D","A","B"],
-          "essay": ["Câu 1...", "Câu 2...", "Câu 3...", "Câu 4...", "Câu 5...", "Câu 6..."]
+          "trueFalse": ["ĐĐSS", "SĐSĐ", "ĐĐSS", "ĐSĐĐ"],
+          "shortAnswer": ["0.25", "5", "333", "1200"],
+          "essay": ["Câu 1...", "Câu 2..."]
         },
         "102": {
           "fileUrl": "",
           "fileType": "pdf",
           "mcq": ["A","B","C","D","A","B","C","D","A","B","C","D"],
-          "essay": ["Câu 1...", "Câu 2...", "Câu 3...", "Câu 4...", "Câu 5...", "Câu 6..."]
+          "trueFalse": ["ĐĐSS", "SĐSĐ", "ĐĐSS", "ĐSĐĐ"],
+          "shortAnswer": ["0.25", "5", "333", "1200"],
+          "essay": ["Câu 1...", "Câu 2..."]
         },
         "103": {
           "fileUrl": "",
           "fileType": "pdf",
           "mcq": ["B","C","D","A","B","C","D","A","B","C","D","A"],
-          "essay": ["Câu 1...", "Câu 2...", "Câu 3...", "Câu 4...", "Câu 5...", "Câu 6..."]
+          "trueFalse": ["ĐĐSS", "SĐSĐ", "ĐĐSS", "ĐSĐĐ"],
+          "shortAnswer": ["0.25", "5", "333", "1200"],
+          "essay": ["Câu 1...", "Câu 2..."]
         },
         "104": {
           "fileUrl": "",
           "fileType": "pdf",
           "mcq": ["C","D","A","B","C","D","A","B","C","D","A","B"],
-          "essay": ["Câu 1...", "Câu 2...", "Câu 3...", "Câu 4...", "Câu 5...", "Câu 6..."]
+          "trueFalse": ["ĐĐSS", "SĐSĐ", "ĐĐSS", "ĐSĐĐ"],
+          "shortAnswer": ["0.25", "5", "333", "1200"],
+          "essay": ["Câu 1...", "Câu 2..."]
         }
       }
     }
