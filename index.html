@@ -1359,11 +1359,27 @@ window.addEventListener('DOMContentLoaded', () => {
             displayExamFileForCode(examId, code);
         }
 
-        function displayExamFileForCode(examId, code) {
+function displayExamFileForCode(examId, code) {
             const exam = state.exams.find(e => e.id === examId);
             const data = exam.codes[code];
             document.getElementById('view-exam-file-title').innerHTML = `<i class="fa-solid fa-file-pdf text-indigo-600 mr-2"></i>Đề Gốc: ${exam.title} (Mã: ${code})`;
-            document.getElementById('view-exam-file-container').innerHTML = data.fileType === 'image' ? `<img src="${data.fileUrl}" class="max-w-full max-h-full object-contain rounded shadow">` : `<iframe src="${data.fileUrl}#toolbar=1&view=FitH" class="w-full h-full border-0"></iframe>`;
+            
+            if (!data.fileUrl) {
+                // Nếu chưa có file PDF/ảnh, hiển thị cấu trúc chi tiết của mã đề thay vì load iframe rỗng gây lồng trang
+                document.getElementById('view-exam-file-container').innerHTML = `
+                    <div class="p-6 bg-white rounded-xl shadow-inner border text-left space-y-3">
+                        <h4 class="font-bold text-indigo-800 text-base">Cấu trúc Mã đề ${code}</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-slate-700">
+                            <div class="p-3 bg-indigo-50 rounded-lg"><strong>Phần I (Trắc nghiệm):</strong> ${data.mcq ? data.mcq.length : 0} câu</div>
+                            <div class="p-3 bg-violet-50 rounded-lg"><strong>Phần II (Đúng/Sai):</strong> ${data.trueFalse ? data.trueFalse.length : 0} câu</div>
+                            <div class="p-3 bg-emerald-50 rounded-lg"><strong>Phần III (Trả lời ngắn):</strong> ${data.shortAnswer ? data.shortAnswer.length : 0} câu</div>
+                            <div class="p-3 bg-amber-50 rounded-lg"><strong>Phần IV (Tự luận):</strong> ${data.essay ? data.essay.length : 0} câu</div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                document.getElementById('view-exam-file-container').innerHTML = data.fileType === 'image' ? `<img src="${data.fileUrl}" class="max-w-full max-h-full object-contain rounded shadow">` : `<iframe src="${data.fileUrl}#toolbar=1&view=FitH" class="w-full h-full border-0"></iframe>`;
+            }
         }
 
         function openTeacherViewSolutionFile(examId) {
