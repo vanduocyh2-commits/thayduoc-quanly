@@ -13,27 +13,34 @@
       "duration": 90,
       "solutionFileUrl": "",
       "solutionFileType": "pdf",
-      "structure": {"mcq": 12, "essay": 0}, 
+      "structure": {
+        "mcq": 12,
+        "essay": 6
+      },
       "codes": {
         "101": {
           "fileUrl": "",
           "fileType": "pdf",
-          "mcq": ["D","C","C","A","B","D","C","A","A","D","A","B"]
+          "mcq": ["","","","","","","","","","","",""],
+          "essay": ""
         },
         "102": {
           "fileUrl": "",
           "fileType": "pdf",
-          "mcq": ["A","B","C","D","A","B","C","D","A","B","C","D"]
+          "mcq": ["","","","","","","","","","","",""],
+          "essay": ""
         },
         "103": {
           "fileUrl": "",
           "fileType": "pdf",
-          "mcq": ["B","C","D","A","B","C","D","A","B","C","D","A"]
+          "mcq": ["","","","","","","","","","","",""],
+          "essay": ""
         },
         "104": {
           "fileUrl": "",
           "fileType": "pdf",
-          "mcq": ["C","D","A","B","C","D","A","B","C","D","A","B"]
+          "mcq": ["","","","","","","","","","","",""],
+          "essay": ""
         }
       }
     }
