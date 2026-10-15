@@ -2045,46 +2045,46 @@ function loadServerData() {
                 .catch(err => console.error("Lỗi đồng bộ dữ liệu:", err));
         }
         // Hàm tự động lưu dữ liệu lên máy chủ Flask để đồng bộ mọi thiết bị
-        function saveServerData() {
-            const payload = {
-                classes: state.classes,
-                exams: state.exams,
-                grades: state.gradeBook
-            };
-            localStorage.setItem('thayduoc_gradebook', JSON.stringify(state.gradeBook));
-            localStorage.setItem('thayduoc_classes', JSON.stringify(state.classes));
-            localStorage.setItem('thayduoc_exams', JSON.stringify(state.exams));
+function saveServerData() {
+    const payload = {
+        classes: state.classes,
+        exams: state.exams,
+        grades: state.gradeBook
+    };
+    // Lưu ngay vào bộ nhớ trình duyệt để chống mất khi F5
+    localStorage.setItem('thayduoc_gradebook', JSON.stringify(state.gradeBook));
+    localStorage.setItem('thayduoc_classes', JSON.stringify(state.classes));
+    localStorage.setItem('thayduoc_exams', JSON.stringify(state.exams));
 
-            fetch('/api/data', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            }).catch(err => console.error("Lỗi khi lưu dữ liệu lên server:", err));
-        }
+    // Gửi ngầm lên server
+    fetch('/api/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    }).catch(err => console.error("Lỗi khi lưu dữ liệu lên server:", err));
+}
 
 function saveGradeBookToStorage() { saveServerData(); }
         function saveClassesToStorage() { saveServerData(); }
         function saveExamsToStorage() { saveServerData(); }
 
         // BẮT BUỘC PHẢI CÓ ĐOẠN NÀY ĐỂ KÍCH HOẠT TẢI DỮ LIỆU KHI MỞ TRANG
-        window.addEventListener('DOMContentLoaded', () => {
-            loadServerData(); // Gọi hàm lấy dữ liệu từ server về ngay khi mở trang
-            
-            try {
-                const savedPass = localStorage.getItem('thayduoc_pass');
-                if(savedPass) { state.teacherPass = savedPass; }
-            } catch(e) {}
+window.addEventListener('DOMContentLoaded', () => {
+    try {
+        const savedExams = localStorage.getItem('thayduoc_exams');
+        if(savedExams) { state.exams = JSON.parse(savedExams); }
+        const savedClasses = localStorage.getItem('thayduoc_classes');
+        if(savedClasses) { state.classes = JSON.parse(savedClasses); }
+        const savedGrades = localStorage.getItem('thayduoc_gradebook');
+        if(savedGrades) { state.gradeBook = JSON.parse(savedGrades); }
+    } catch(e) {}
 
-            try {
-                const savedClasses = localStorage.getItem('thayduoc_classes');
-                if(savedClasses) { state.classes = JSON.parse(savedClasses); }
-            } catch(e) {}
-
-            try {
-                const savedExams = localStorage.getItem('thayduoc_exams');
-                if(savedExams) { state.exams = JSON.parse(savedExams); }
-            } catch(e) {}
-        });
+    // Vẽ giao diện ngay lập tức
+    renderTeacherExams();
+    
+    // Sau đó mới gọi hàm đồng bộ ngầm từ server
+    loadServerData();
+});
     </script>
 </body>
 </html>
