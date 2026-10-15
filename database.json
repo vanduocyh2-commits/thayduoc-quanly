@@ -13,39 +13,27 @@
       "duration": 90,
       "solutionFileUrl": "",
       "solutionFileType": "pdf",
-      "structure": {"mcq": 12, "trueFalse": 4, "shortAnswer": 4, "essay": 2},
+      "structure": {"mcq": 12, "essay": 0}, 
       "codes": {
         "101": {
           "fileUrl": "",
           "fileType": "pdf",
-          "mcq": ["D","C","C","A","B","D","C","A","A","D","A","B"],
-          "tf": ["ĐĐSS","SĐSĐ","ĐĐSS","ĐSĐĐ"],
-          "short": ["0.25", "5", "333", "1200"],
-          "essay": "Hướng dẫn chấm..."
+          "mcq": ["D","C","C","A","B","D","C","A","A","D","A","B"]
         },
         "102": {
           "fileUrl": "",
           "fileType": "pdf",
-          "mcq": ["A","B","C","D","A","B","C","D","A","B","C","D"],
-          "tf": ["ĐĐSS","SĐSĐ","ĐĐSS","ĐSĐĐ"],
-          "short": ["0.25", "5", "333", "1200"],
-          "essay": "Hướng dẫn chấm..."
+          "mcq": ["A","B","C","D","A","B","C","D","A","B","C","D"]
         },
         "103": {
           "fileUrl": "",
           "fileType": "pdf",
-          "mcq": ["B","C","D","A","B","C","D","A","B","C","D","A"],
-          "tf": ["ĐĐSS","SĐSĐ","ĐĐSS","ĐSĐĐ"],
-          "short": ["0.25", "5", "333", "1200"],
-          "essay": "Hướng dẫn chấm..."
+          "mcq": ["B","C","D","A","B","C","D","A","B","C","D","A"]
         },
         "104": {
           "fileUrl": "",
           "fileType": "pdf",
-          "mcq": ["C","D","A","B","C","D","A","B","C","D","A","B"],
-          "tf": ["ĐĐSS","SĐSĐ","ĐĐSS","ĐSĐĐ"],
-          "short": ["0.25", "5", "333", "1200"],
-          "essay": "Hướng dẫn chấm..."
+          "mcq": ["C","D","A","B","C","D","A","B","C","D","A","B"]
         }
       }
     }
