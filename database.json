@@ -1,0 +1,54 @@
+{
+  "classes": [
+    {"id": 1, "name": "12A1", "password": "", "students": []}
+  ],
+  "exams": [
+    {
+      "id": 1,
+      "subject": "Môn Toán",
+      "grade": "Khối 12",
+      "targetClass": "ALL",
+      "category": "Kiểm tra",
+      "title": "ĐỀ KTGK 1",
+      "duration": 90,
+      "solutionFileUrl": "",
+      "solutionFileType": "pdf",
+      "structure": {"mcq": 12, "trueFalse": 4, "shortAnswer": 4, "essay": 2},
+      "codes": {
+        "101": {
+          "fileUrl": "",
+          "fileType": "pdf",
+          "mcq": ["D","C","C","A","B","D","C","A","A","D","A","B"],
+          "tf": ["ĐĐSS","SĐSĐ","ĐĐSS","ĐSĐĐ"],
+          "short": ["0.25", "5", "333", "1200"],
+          "essay": "Hướng dẫn chấm..."
+        },
+        "102": {
+          "fileUrl": "",
+          "fileType": "pdf",
+          "mcq": ["A","B","C","D","A","B","C","D","A","B","C","D"],
+          "tf": ["ĐĐSS","SĐSĐ","ĐĐSS","ĐSĐĐ"],
+          "short": ["0.25", "5", "333", "1200"],
+          "essay": "Hướng dẫn chấm..."
+        },
+        "103": {
+          "fileUrl": "",
+          "fileType": "pdf",
+          "mcq": ["B","C","D","A","B","C","D","A","B","C","D","A"],
+          "tf": ["ĐĐSS","SĐSĐ","ĐĐSS","ĐSĐĐ"],
+          "short": ["0.25", "5", "333", "1200"],
+          "essay": "Hướng dẫn chấm..."
+        },
+        "104": {
+          "fileUrl": "",
+          "fileType": "pdf",
+          "mcq": ["C","D","A","B","C","D","A","B","C","D","A","B"],
+          "tf": ["ĐĐSS","SĐSĐ","ĐĐSS","ĐSĐĐ"],
+          "short": ["0.25", "5", "333", "1200"],
+          "essay": "Hướng dẫn chấm..."
+        }
+      }
+    }
+  ],
+  "grades": []
+}
