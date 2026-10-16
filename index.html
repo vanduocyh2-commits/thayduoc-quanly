@@ -1485,7 +1485,7 @@ function uploadAndCreateMultiCodeExam() {
             const fileRows = document.querySelectorAll('.code-file-row');
             const ansRows = document.querySelectorAll('.ans-row');
 
-            // Hàm chuyển đổi file từ máy tính thành chuỗi Base64 lưu vĩnh viễn
+            // Hàm chuyển đổi file thành URL an toàn hiển thị trên web
             const readFileAsDataURL = (file) => {
                 return new Promise((resolve) => {
                     const reader = new FileReader();
@@ -1562,9 +1562,10 @@ function uploadAndCreateMultiCodeExam() {
                 });
                 
                 saveExamsToStorage();
+                if(typeof saveServerData === 'function') { saveServerData(); }
                 closeModal('modal-upload-exam');
                 renderTeacherExams();
-                alert('Tạo và phân đề thi thành công! File đã được lưu trữ vĩnh viễn trên phần mềm, bấm F5 thoải mái không bao giờ mất.');
+                alert('Tạo và phân đề thi thành công! Đã lưu trữ trên hệ thống.');
             })();
         }
         function renderClassGradeBook() {
