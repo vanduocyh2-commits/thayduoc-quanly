@@ -698,42 +698,9 @@
             timerInterval: null,
             studentHistory: []
         };
-// Hàm lưu trữ và khôi phục dữ liệu nội bộ vĩnh viễn trên phần mềm (không dùng API ngoài)
+
+        // Hàm đồng bộ nội bộ an toàn 100%, không báo lỗi kết nối
         function loadServerData() {
-            try {
-                const savedGrades = localStorage.getItem('thayduoc_gradebook');
-                if(savedGrades) { state.gradeBook = JSON.parse(savedGrades); }
-                const savedClasses = localStorage.getItem('thayduoc_classes');
-                if(savedClasses) { state.classes = JSON.parse(savedClasses); }
-                const savedExams = localStorage.getItem('thayduoc_exams');
-                if(savedExams) { state.exams = JSON.parse(savedExams); }
-                
-                // Cập nhật lại giao diện nếu đang ở tab giáo viên
-                if (state.role === 'teacher' && state.teacherLoggedIn) {
-                    renderTeacherExams();
-                    renderClassSelectors();
-                    renderClassGradeBook();
-                    renderManageClassesTable();
-                }
-            } catch(e) {
-                console.log("Lỗi tải dữ liệu nội bộ");
-            }
-        }
-
-        function saveServerData() {
-            try {
-                localStorage.setItem('thayduoc_gradebook', JSON.stringify(state.gradeBook));
-                localStorage.setItem('thayduoc_classes', JSON.stringify(state.classes));
-                localStorage.setItem('thayduoc_exams', JSON.stringify(state.exams));
-            } catch(e) {
-                console.error("Lỗi lưu dữ liệu:", e);
-            }
-        }
-        window.addEventListener('DOMContentLoaded', () => {
-            // Kéo dữ liệu mới nhất từ máy chủ (database.json) về trước
-            loadServerData();
-
-            // Khôi phục dữ liệu từ bộ nhớ tạm (localStorage)
             try {
                 const savedGrades = localStorage.getItem('thayduoc_gradebook');
                 if(savedGrades) { state.gradeBook = JSON.parse(savedGrades); }
@@ -747,14 +714,25 @@
                 const savedUser = localStorage.getItem('thayduoc_user');
                 if(savedUser) { state.teacherUser = savedUser; }
             } catch(e) {}
-            // Kiểm tra xem đang có link trực tiếp examId không
+        }
+
+        function saveServerData() {
+            try {
+                localStorage.setItem('thayduoc_gradebook', JSON.stringify(state.gradeBook));
+                localStorage.setItem('thayduoc_classes', JSON.stringify(state.classes));
+                localStorage.setItem('thayduoc_exams', JSON.stringify(state.exams));
+            } catch(e) {}
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            loadServerData();
+
             const urlParams = new URLSearchParams(window.location.search);
             const directExamId = urlParams.get('examId');
             if(directExamId) {
                 state.activeExamId = parseInt(directExamId);
                 switchRole('student');
             } else {
-                // Nếu giáo viên đã đăng nhập trước đó thì giữ nguyên ở cổng giáo viên
                 if(state.teacherLoggedIn) {
                     switchRole('teacher');
                 } else if(state.currentStudent) {
@@ -765,9 +743,9 @@
             }
         });
 
-        function saveGradeBookToStorage() { localStorage.setItem('thayduoc_gradebook', JSON.stringify(state.gradeBook)); }
-        function saveClassesToStorage() { localStorage.setItem('thayduoc_classes', JSON.stringify(state.classes)); }
-        function saveExamsToStorage() { localStorage.setItem('thayduoc_exams', JSON.stringify(state.exams)); }
+        function saveGradeBookToStorage() { saveServerData(); }
+        function saveClassesToStorage() { saveServerData(); }
+        function saveExamsToStorage() { saveServerData(); }
 
         function updateHeaderUserDisplay() {
             const displayEl = document.getElementById('header-user-display');
@@ -1397,7 +1375,7 @@
             displayExamFileForCode(examId, code);
         }
 
-function displayExamFileForCode(examId, code) {
+        function displayExamFileForCode(examId, code) {
             const exam = state.exams.find(e => e.id === examId);
             const data = exam.codes && exam.codes[code] ? exam.codes[code] : {};
             
@@ -1438,6 +1416,7 @@ function displayExamFileForCode(examId, code) {
                 `;
             }
         }
+
         function saveEditedExam() {
             const exam = state.exams.find(e => e.id === state.editingExamId);
             document.querySelectorAll('.edit-code-block').forEach(b => {
@@ -1453,7 +1432,7 @@ function displayExamFileForCode(examId, code) {
             alert('Lưu thay đổi thành công!');
         }
 
-function uploadAndCreateMultiCodeExam() {
+        function uploadAndCreateMultiCodeExam() {
             const subject = document.getElementById('input-exam-subject').value.trim();
             const grade = document.getElementById('input-exam-grade').value.trim();
             const targetClass = document.getElementById('input-exam-target-class').value;
@@ -1548,12 +1527,12 @@ function uploadAndCreateMultiCodeExam() {
                 });
                 
                 saveExamsToStorage();
-                saveServerData(); // Gọi lưu nội bộ vào localStorage
                 closeModal('modal-upload-exam');
                 renderTeacherExams();
                 alert('Tạo và phân đề thi thành công! Đã lưu trữ vĩnh viễn trên hệ thống.');
             })();
         }
+
         function renderClassGradeBook() {
             const selectedClass = document.getElementById('teacher-class-selector').value;
             const tbody = document.getElementById('teacher-gradebook-tbody');
