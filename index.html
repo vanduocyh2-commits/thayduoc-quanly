@@ -699,26 +699,37 @@
             studentHistory: []
         };
 
-        window.addEventListener('DOMContentLoaded', () => {
-            const savedGrades = localStorage.getItem('thayduoc_gradebook');
-            if(savedGrades) { try { state.gradeBook = JSON.parse(savedGrades); } catch(e) {} }
-            const savedClasses = localStorage.getItem('thayduoc_classes');
-            if(savedClasses) { try { state.classes = JSON.parse(savedClasses); } catch(e) {} }
-            const savedExams = localStorage.getItem('thayduoc_exams');
-            if(savedExams) { try { state.exams = JSON.parse(savedExams); } catch(e) {} }
-            
-            const savedPass = localStorage.getItem('thayduoc_pass');
-            if(savedPass) { state.teacherPass = savedPass; }
-            const savedUser = localStorage.getItem('thayduoc_user');
-            if(savedUser) { state.teacherUser = savedUser; }
+window.addEventListener('DOMContentLoaded', () => {
+            // Khôi phục dữ liệu từ bộ nhớ tạm
+            try {
+                const savedGrades = localStorage.getItem('thayduoc_gradebook');
+                if(savedGrades) { state.gradeBook = JSON.parse(savedGrades); }
+                const savedClasses = localStorage.getItem('thayduoc_classes');
+                if(savedClasses) { state.classes = JSON.parse(savedClasses); }
+                const savedExams = localStorage.getItem('thayduoc_exams');
+                if(savedExams) { state.exams = JSON.parse(savedExams); }
+                
+                const savedPass = localStorage.getItem('thayduoc_pass');
+                if(savedPass) { state.teacherPass = savedPass; }
+                const savedUser = localStorage.getItem('thayduoc_user');
+                if(savedUser) { state.teacherUser = savedUser; }
+            } catch(e) {}
 
+            // Kiểm tra xem đang có link trực tiếp examId không
             const urlParams = new URLSearchParams(window.location.search);
             const directExamId = urlParams.get('examId');
             if(directExamId) {
                 state.activeExamId = parseInt(directExamId);
                 switchRole('student');
             } else {
-                goBackToHome();
+                // Nếu giáo viên đã đăng nhập trước đó thì giữ nguyên ở cổng giáo viên
+                if(state.teacherLoggedIn) {
+                    switchRole('teacher');
+                } else if(state.currentStudent) {
+                    switchRole('student');
+                } else {
+                    goBackToHome();
+                }
             }
         });
 
@@ -1354,46 +1365,47 @@
             displayExamFileForCode(examId, code);
         }
 
-        function displayExamFileForCode(examId, code) {
+function displayExamFileForCode(examId, code) {
             const exam = state.exams.find(e => e.id === examId);
-            const data = exam.codes[code];
-            document.getElementById('view-exam-file-title').innerHTML = `<i class="fa-solid fa-file-pdf text-indigo-600 mr-2"></i>Đề Gốc: ${exam.title} (Mã: ${code})`;
-            document.getElementById('view-exam-file-container').innerHTML = data.fileType === 'image' ? `<img src="${data.fileUrl}" class="max-w-full max-h-full object-contain rounded shadow">` : `<iframe src="${data.fileUrl}#toolbar=1&view=FitH" class="w-full h-full border-0"></iframe>`;
-        }
+            const data = exam.codes && exam.codes[code] ? exam.codes[code] : {};
+            
+            document.getElementById('view-exam-file-title').innerHTML = `<i class="fa-solid fa-file-lines text-indigo-600 mr-2"></i>Đề Gốc: ${exam.title} (Mã: ${code})`;
+            
+            if (data.fileUrl && data.fileUrl !== 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf') {
+                document.getElementById('view-exam-file-container').innerHTML = data.fileType === 'image' 
+                    ? `<img src="${data.fileUrl}" class="max-w-full max-h-full object-contain rounded shadow">` 
+                    : `<iframe src="${data.fileUrl}#toolbar=1&view=FitH" class="w-full h-full border-0"></iframe>`;
+            } else {
+                const structure = exam.structure || {};
+                const mcqCount = structure.mcq !== undefined ? structure.mcq : 12;
+                const tfCount = structure.trueFalse !== undefined ? structure.trueFalse : 4;
+                const saCount = structure.shortAnswer !== undefined ? structure.shortAnswer : 4;
+                const essayCount = structure.essay !== undefined ? structure.essay : 2;
 
-        function openTeacherViewSolutionFile(examId) {
-            const exam = state.exams.find(e => e.id === examId);
-            document.getElementById('view-solution-file-title').innerHTML = `<i class="fa-solid fa-book-open-reader text-violet-600 mr-2"></i>Lời Giải: ${exam.title}`;
-            document.getElementById('view-solution-file-container').innerHTML = exam.solutionFileType === 'image' ? `<img src="${exam.solutionFileUrl}" class="max-w-full max-h-full object-contain rounded shadow">` : `<iframe src="${exam.solutionFileUrl}#toolbar=1&view=FitH" class="w-full h-full border-0"></iframe>`;
-            openModal('modal-view-solution-file');
-        }
-
-        function openStudentSolutionViewer() {
-            const exam = state.exams.find(e => e.id === state.activeExamId);
-            if(!exam || !exam.solutionFileUrl) { alert('Chưa có lời giải!'); return; }
-            document.getElementById('view-solution-file-title').innerHTML = `<i class="fa-solid fa-book-open-reader text-violet-600 mr-2"></i>Lời Giải Chi Tiết`;
-            document.getElementById('view-solution-file-container').innerHTML = exam.solutionFileType === 'image' ? `<img src="${exam.solutionFileUrl}" class="max-w-full max-h-full object-contain rounded shadow">` : `<iframe src="${exam.solutionFileUrl}#toolbar=1&view=FitH" class="w-full h-full border-0"></iframe>`;
-            openModal('modal-view-solution-file');
-        }
-
-        function openEditExamModal(examId) {
-            state.editingExamId = examId;
-            const exam = state.exams.find(e => e.id === examId);
-            let html = `<p class="font-bold text-slate-700 mb-2">Sửa đề: ${exam.title}</p>`;
-            for(let code in exam.codes) {
-                const data = exam.codes[code];
-                html += `
-                    <div class="p-3 bg-slate-50 border rounded-xl space-y-2 edit-code-block mb-3" data-code="${code}">
-                        <p class="font-bold text-indigo-900 text-sm">Mã đề: ${code}</p>
-                        <div><label class="font-bold text-slate-600">Trắc nghiệm:</label><input type="text" value="${(data.mcq || []).join(', ')}" class="w-full p-1.5 border rounded edit-mcq bg-white text-xs"></div>
-                        <div><label class="font-bold text-slate-600">Đúng/Sai:</label><input type="text" value="${(data.tf || []).join(', ')}" class="w-full p-1.5 border rounded edit-tf bg-white text-xs"></div>
-                        <div><label class="font-bold text-slate-600">Trả lời ngắn:</label><input type="text" value="${(data.short || []).join('; ')}" class="w-full p-1.5 border rounded edit-short bg-white text-xs"></div>
-                    </div>`;
+                document.getElementById('view-exam-file-container').innerHTML = `
+                    <div class="p-6 bg-white rounded-xl shadow-inner border text-left space-y-4 max-h-[70vh] overflow-y-auto w-full">
+                        <div class="border-b pb-3">
+                            <h4 class="font-bold text-indigo-900 text-base">${exam.title} - Mã đề: ${code}</h4>
+                            <p class="text-xs text-slate-500 mt-1">Môn: ${exam.subject || 'Toán'} | Khối: ${exam.grade || '12'} | Thời gian: ${exam.duration} phút</p>
+                        </div>
+                        <div class="space-y-3">
+                            <div class="p-4 bg-indigo-50/60 rounded-xl border border-indigo-100">
+                                <h5 class="font-bold text-indigo-800 text-sm mb-1">PHẦN I: Trắc nghiệm nhiều lựa chọn (${mcqCount} câu)</h5>
+                            </div>
+                            <div class="p-4 bg-violet-50/60 rounded-xl border border-violet-100">
+                                <h5 class="font-bold text-violet-800 text-sm mb-1">PHẦN II: Trắc nghiệm Đúng / Sai (${tfCount} câu)</h5>
+                            </div>
+                            <div class="p-4 bg-emerald-50/60 rounded-xl border border-emerald-100">
+                                <h5 class="font-bold text-emerald-800 text-sm mb-1">PHẦN III: Trả lời ngắn (${saCount} câu)</h5>
+                            </div>
+                            <div class="p-4 bg-amber-50/60 rounded-xl border border-amber-100">
+                                <h5 class="font-bold text-amber-800 text-sm mb-1">PHẦN IV: Tự luận (${essayCount} câu)</h5>
+                            </div>
+                        </div>
+                    </div>
+                `;
             }
-            document.getElementById('edit-exam-content').innerHTML = html;
-            openModal('modal-edit-exam');
         }
-
         function saveEditedExam() {
             const exam = state.exams.find(e => e.id === state.editingExamId);
             document.querySelectorAll('.edit-code-block').forEach(b => {
@@ -1409,7 +1421,7 @@
             alert('Lưu thay đổi thành công!');
         }
 
-        function uploadAndCreateMultiCodeExam() {
+function uploadAndCreateMultiCodeExam() {
             const subject = document.getElementById('input-exam-subject').value.trim();
             const grade = document.getElementById('input-exam-grade').value.trim();
             const targetClass = document.getElementById('input-exam-target-class').value;
@@ -1421,47 +1433,95 @@
             const short = parseInt(document.getElementById('input-num-short').value) || 0;
             const essay = parseInt(document.getElementById('input-num-essay').value) || 0;
 
-            let solutionFileUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', solutionFileType = 'pdf';
             const solInput = document.getElementById('input-solution-file');
-            if(solInput.files && solInput.files[0]) {
-                const file = solInput.files[0];
-                solutionFileUrl = URL.createObjectURL(file);
-                solutionFileType = ['png', 'jpg', 'jpeg'].includes(file.name.split('.').pop().toLowerCase()) ? 'image' : 'pdf';
-            }
+            let solutionFileUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
+            let solutionFileType = 'pdf';
 
-            let codesMap = {};
             const fileRows = document.querySelectorAll('.code-file-row');
             const ansRows = document.querySelectorAll('.ans-row');
 
-            fileRows.forEach((r, idx) => {
-                const codeInput = r.querySelector('.exam-code-input-field').value.trim();
-                const fileInput = r.querySelector('.exam-file-input');
-                let fileUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', fileType = 'pdf';
-                if(fileInput.files && fileInput.files[0]) {
-                    const file = fileInput.files[0];
-                    fileUrl = URL.createObjectURL(file);
-                    fileType = ['png', 'jpg', 'jpeg'].includes(file.name.split('.').pop().toLowerCase()) ? 'image' : 'pdf';
+            // Hàm chuyển đổi file từ máy tính thành chuỗi Base64 lưu vĩnh viễn
+            const readFileAsDataURL = (file) => {
+                return new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.onerror = () => resolve('https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf');
+                    reader.readAsDataURL(file);
+                });
+            };
+
+            (async () => {
+                if(solInput && solInput.files && solInput.files[0]) {
+                    const file = solInput.files[0];
+                    solutionFileUrl = await readFileAsDataURL(file);
+                    solutionFileType = ['png', 'jpg', 'jpeg'].includes(file.name.split('.').pop().toLowerCase()) ? 'image' : 'pdf';
                 }
-                if(codeInput) {
-                    let mcqKeys = ['D','C','C','A','B','D','C','A','A','D','A','B'];
-                    let tfKeys = ['ĐĐSS','SĐSĐ','ĐĐSS','ĐSĐĐ'];
-                    let shortKeys = ['0.25', '5', '333', '1200'];
-                    if(ansRows[idx] && ansRows[idx].querySelector('.ans-code').value.trim() === codeInput) {
-                        mcqKeys = ansRows[idx].querySelector('.ans-mcq').value.trim().split(',').map(k => k.trim().toUpperCase());
-                        tfKeys = ansRows[idx].querySelector('.ans-tf').value.trim().split(',').map(k => k.trim().toUpperCase());
-                        shortKeys = ansRows[idx].querySelector('.ans-short').value.trim().split(';').map(k => k.trim());
+
+                let codesMap = {};
+                for (let idx = 0; idx < fileRows.length; idx++) {
+                    const r = fileRows[idx];
+                    const codeInputEl = r.querySelector('.exam-code-input-field');
+                    const fileInputEl = r.querySelector('.exam-file-input');
+                    const codeInput = codeInputEl ? codeInputEl.value.trim() : `10${idx+1}`;
+                    
+                    let fileUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
+                    let fileType = 'pdf';
+
+                    if(fileInputEl && fileInputEl.files && fileInputEl.files[0]) {
+                        const file = fileInputEl.files[0];
+                        fileUrl = await readFileAsDataURL(file);
+                        fileType = ['png', 'jpg', 'jpeg'].includes(file.name.split('.').pop().toLowerCase()) ? 'image' : 'pdf';
                     }
-                    codesMap[codeInput] = { fileUrl, fileType, mcq: mcqKeys, tf: tfKeys, short: shortKeys };
+
+                    if(codeInput) {
+                        let mcqKeys = Array(mcq).fill('A');
+                        let tfKeys = Array(tf).fill('ĐĐSS');
+                        let shortKeys = Array(short).fill('0');
+                        
+                        if(ansRows[idx]) {
+                            const mcqField = ansRows[idx].querySelector('.ans-mcq');
+                            const tfField = ansRows[idx].querySelector('.ans-tf');
+                            const shortField = ansRows[idx].querySelector('.ans-short');
+                            
+                            if(mcqField && mcqField.value.trim()) mcqKeys = mcqField.value.trim().split(',').map(k => k.trim().toUpperCase());
+                            if(tfField && tfField.value.trim()) tfKeys = tfField.value.trim().split(',').map(k => k.trim().toUpperCase());
+                            if(shortField && shortField.value.trim()) shortKeys = shortField.value.trim().split(';').map(k => k.trim());
+                        }
+                        
+                        codesMap[codeInput] = { fileUrl, fileType, mcq: mcqKeys, tf: tfKeys, short: shortKeys };
+                    }
                 }
-            });
 
-            state.exams.push({ id: Date.now(), subject, grade, targetClass, category, title, duration, solutionFileUrl, solutionFileType, structure: { mcq, trueFalse: tf, shortAnswer: short, essay }, codes: codesMap });
-            saveExamsToStorage();
-            closeModal('modal-upload-exam');
-            renderTeacherExams();
-            alert('Tạo và phân đề thi thành công!');
+                if(Object.keys(codesMap).length === 0) {
+                    codesMap['101'] = { 
+                        fileUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', 
+                        fileType: 'pdf', 
+                        mcq: Array(mcq).fill('A'), 
+                        tf: Array(tf).fill('ĐĐSS'), 
+                        short: Array(short).fill('0') 
+                    };
+                }
+
+                state.exams.push({ 
+                    id: Date.now(), 
+                    subject, 
+                    grade, 
+                    targetClass, 
+                    category, 
+                    title, 
+                    duration, 
+                    solutionFileUrl, 
+                    solutionFileType, 
+                    structure: { mcq, trueFalse: tf, shortAnswer: short, essay }, 
+                    codes: codesMap 
+                });
+                
+                saveExamsToStorage();
+                closeModal('modal-upload-exam');
+                renderTeacherExams();
+                alert('Tạo và phân đề thi thành công! File đã được lưu trữ vĩnh viễn trên phần mềm, bấm F5 thoải mái không bao giờ mất.');
+            })();
         }
-
         function renderClassGradeBook() {
             const selectedClass = document.getElementById('teacher-class-selector').value;
             const tbody = document.getElementById('teacher-gradebook-tbody');
