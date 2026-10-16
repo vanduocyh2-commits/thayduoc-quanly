@@ -698,9 +698,55 @@
             timerInterval: null,
             studentHistory: []
         };
+// ====== THÊM 2 HÀM ĐỒNG BỘ DỮ LIỆU VỚI SERVER TẠI ĐÂY ======
+        function loadServerData() {
+            fetch('/api/data')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.classes && data.classes.length > 0) {
+                        state.classes = data.classes;
+                        localStorage.setItem('thayduoc_classes', JSON.stringify(data.classes));
+                    }
+                    if (data.exams && data.exams.length > 0) {
+                        state.exams = data.exams;
+                        localStorage.setItem('thayduoc_exams', JSON.stringify(data.exams));
+                    }
+                    if (data.grades && data.grades.length > 0) {
+                        state.gradeBook = data.grades;
+                        localStorage.setItem('thayduoc_gradebook', JSON.stringify(data.grades));
+                    }
+                    // Cập nhật lại giao diện nếu đang ở tab giáo viên
+                    if (state.role === 'teacher' && state.teacherLoggedIn) {
+                        renderTeacherExams();
+                        renderClassSelectors();
+                        renderClassGradeBook();
+                        renderManageClassesTable();
+                    }
+                })
+                .catch(err => console.log("Chạy chế độ offline/local"));
+        }
 
+        function saveServerData() {
+            const payload = {
+                classes: state.classes,
+                exams: state.exams,
+                grades: state.gradeBook
+            };
+            localStorage.setItem('thayduoc_gradebook', JSON.stringify(state.gradeBook));
+            localStorage.setItem('thayduoc_classes', JSON.stringify(state.classes));
+            localStorage.setItem('thayduoc_exams', JSON.stringify(state.exams));
+
+            fetch('/api/data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }).catch(err => console.error("Lỗi đồng bộ server:", err));
+        }
 window.addEventListener('DOMContentLoaded', () => {
-            // Khôi phục dữ liệu từ bộ nhớ tạm
+            // Kéo dữ liệu mới nhất từ máy chủ (database.json) về trước
+            loadServerData();
+
+            // Khôi phục dữ liệu từ bộ nhớ tạm (localStorage)
             try {
                 const savedGrades = localStorage.getItem('thayduoc_gradebook');
                 if(savedGrades) { state.gradeBook = JSON.parse(savedGrades); }
@@ -714,7 +760,6 @@ window.addEventListener('DOMContentLoaded', () => {
                 const savedUser = localStorage.getItem('thayduoc_user');
                 if(savedUser) { state.teacherUser = savedUser; }
             } catch(e) {}
-
             // Kiểm tra xem đang có link trực tiếp examId không
             const urlParams = new URLSearchParams(window.location.search);
             const directExamId = urlParams.get('examId');
