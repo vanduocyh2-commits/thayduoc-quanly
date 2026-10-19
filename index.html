@@ -3611,25 +3611,32 @@ function drawBBTContent(ctx, w, h, info) {
                 ? `Đã chấm phần Trắc nghiệm (${score}đ). Đang chờ Thầy Bùi Văn Được chấm phần Tự luận.`
                 : `Hoàn thành bài thi trắc nghiệm (${score}đ).`;
 
-            const record = {
-                id: 'sub_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-                studentName: state.currentStudent.name,
-                studentSbd: state.currentStudent.sbd,
-                studentClass: state.currentStudent.class,
-                examId: exam.id,
-                examTitle: `${exam.title}`,
-                examCode: state.activeExamCode,
-                score,
-                rank,
-                comment,
-                hasPendingEssay: hasEssay,
-                details,
-                time: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN')
-            };
+    // === ĐẶT ĐOẠN CODE NÀY VÀO ĐÂY ===
+    const record = {
+        id: 'sub_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        studentName: state.currentStudent.name,
+        studentSbd: state.currentStudent.sbd,
+        studentClass: state.currentStudent.class,
+        examId: exam.id,
+        examTitle: `${exam.title}`,
+        examCode: state.activeExamCode,
+        score,
+        rank,
+        comment,
+        hasPendingEssay: hasEssay,
+        details,
+        time: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN')
+    };
 
-            state.gradeBook.unshift(record);
-            syncSubmissionToCloud(record);
-
+    // Lưu dự phòng vào trình duyệt và đồng bộ lên mây
+    try {
+        let localHistory = JSON.parse(localStorage.getItem('thayduoc_local_subs') || '[]');
+        localHistory.unshift(record);
+        localStorage.setItem('thayduoc_local_subs', JSON.stringify(localHistory));
+    } catch(e) {}
+    state.gradeBook.unshift(record);
+    syncSubmissionToCloud(record);
+    // ===================================
             // Hiển thị Bảng tổng hợp kết quả (Không hiển thị đáp án chi tiết theo yêu cầu)
             document.getElementById('exam-taking-view').classList.add('hidden');
             document.getElementById('result-code-badge').innerText = state.activeExamCode;
