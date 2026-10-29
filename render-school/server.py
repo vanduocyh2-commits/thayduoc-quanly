@@ -1,5 +1,5 @@
 """Independent school portal for Render. No ChatGPT or Cloudflare dependency."""
-import os,json,re,hmac,secrets,hashlib,time,io
+import os,json,re,hmac,secrets,hashlib,time,io,unicodedata,zipfile
 from pathlib import Path
 from datetime import datetime,timezone
 from functools import wraps
@@ -22,6 +22,8 @@ limits=Table('school_login_limits',metadata,Column('key',String,primary_key=True
 
 library_files=Table('school_library_files',metadata,Column('id',String,primary_key=True),Column('record_id',String,ForeignKey('school_records.id'),unique=True,nullable=False),Column('name',String,nullable=False),Column('mime',String,nullable=False),Column('size',Integer,nullable=False),Column('content',LargeBinary,nullable=False))
 
+rosters=Table('school_rosters',metadata,Column('id',String,primary_key=True),Column('course_id',String,ForeignKey('school_courses.id'),nullable=False),Column('author_id',String,ForeignKey('school_members.id'),nullable=False),Column('data',Text,nullable=False),Column('status',String,nullable=False),Column('created_at',String,nullable=False))
+
 class AppError(Exception):
  def __init__(self,message,status=400):self.message=message;self.status=status
 
@@ -43,6 +45,56 @@ def parse_date(value):
  except (ValueError,AttributeError,TypeError):fail('Ngày giờ chưa hợp lệ.')
 def may_teach(m,c):return not m['disabled'] and (m['role']=='admin' or (m['role']=='teacher' and c['teacher_id']==m['id']))
 def public_member(m):return {k:v for k,v in m.items() if k!='password_hash'}
+
+def normalized(v):return ''.join(c for c in unicodedata.normalize('NFD',str(v).lower().replace('đ','d')) if not unicodedata.combining(c)).strip()
+def roster_students(values):
+ if not isinstance(values,list) or not 1<=len(values)<=500:fail('Danh sách cần từ 1 đến 500 học sinh.')
+ result=[];seen=set()
+ for i,v in enumerate(values,1):
+  if not isinstance(v,dict):fail('Dòng học sinh chưa hợp lệ.')
+  code=username(v.get('code'));name=text(v.get('name'),200)
+  if code in seen:fail(f'Dòng {i}: trùng mã học sinh {code}.')
+  seen.add(code);result.append({'code':code,'name':name})
+ return result
+
+def parse_roster(upload):
+ from openpyxl import load_workbook
+ if not upload:fail('Hãy chọn file Excel .xlsx.')
+ if not upload.filename.lower().endswith('.xlsx'):fail('Hỗ trợ Excel .xlsx. Với file .xls, hãy lưu thành .xlsx trước.')
+ raw=upload.read()
+ try:
+  with zipfile.ZipFile(io.BytesIO(raw)) as z:
+   if sum(x.file_size for x in z.infolist())>40*1024*1024:fail('File Excel sau giải nén quá lớn.')
+  wb=load_workbook(io.BytesIO(raw),read_only=True,data_only=True)
+ except AppError:raise
+ except Exception:fail('Không đọc được file Excel. Hãy kiểm tra file .xlsx không có mật khẩu.')
+ result=[];errors=[];seen=set();found=False
+ try:
+  for sheet in wb:
+   header=None
+   for line,row in enumerate(sheet.iter_rows(max_row=min(sheet.max_row or 0,2000),max_col=50,values_only=True),1):
+    cells=[normalized(v or '') for v in row]
+    if header is None:
+     code=next((i for i,v in enumerate(cells) if v in ['ma hoc sinh','ma hs','ma dinh danh bo gd&dt','ma dinh danh','sbd','ten dang nhap']),None)
+     name=next((i for i,v in enumerate(cells) if v in ['ho va ten','ho ten','ho va ten hoc sinh']),None)
+     if code is not None and name is not None:header=(code,name);found=True
+     continue
+    code_value=row[header[0]];name_value=row[header[1]]
+    if not code_value and not name_value:continue
+    # Skip the second header line and footer summaries in Ministry grade exports.
+    if not code_value and (not row[0] or not str(row[0]).strip().isdigit()):continue
+    code=str(int(code_value)) if isinstance(code_value,(int,float)) and float(code_value).is_integer() else str(code_value or '').strip()
+    try:
+     item=roster_students([{'code':code,'name':str(name_value or '')}])[0]
+     if item['code'] in seen:fail('Trùng mã học sinh trong file.')
+     seen.add(item['code']);result.append(item)
+    except AppError as e:errors.append(f'{sheet.title}, dòng {line}: {e.message}')
+    if len(result)>500:fail('Mỗi lần tải tối đa 500 học sinh.')
+   if header and (sheet.max_row or 0)>2000:errors.append(f'{sheet.title}: bảng vượt quá 2000 dòng, hãy tách file.')
+ finally:wb.close()
+ if not found:fail('Không tìm thấy cột Mã định danh Bộ GD&ĐT / Mã học sinh và Họ và tên trong 50 cột đầu.')
+ if not result and not errors:fail('Không có học sinh trong file.')
+ return result,errors
 
 def create_app(config=None):
  app=Flask(__name__,static_folder='static',static_url_path='/static');app.config.update(MAX_CONTENT_LENGTH=6*1024*1024,SECRET_KEY=os.getenv('SECRET_KEY'),DATABASE_URL=os.getenv('DATABASE_URL'),ADMIN_SETUP_TOKEN=os.getenv('ADMIN_SETUP_TOKEN'),SESSION_SECONDS=43200,TESTING=False)
@@ -194,11 +246,48 @@ def create_app(config=None):
    if m['role']=='student' and (r['course_id'] not in ids or not d.get('published')):continue
    c=next((c for c in all_cs if c['id']==r['course_id']),None)
    lib.append({**r,'data':d,'course_label':(c['name']+' · '+c['subject']) if c else 'Lớp / môn đã xóa','author_name':next((x['name'] for x in all_ms if x['id']==r['author_id']),'Giáo viên')})
-  return jsonify(me=public_member(dict(m)),members=ms,courses=cs,enrollments=es,records=rs,submissions=ss,library=lib)
+  return jsonify(me=public_member(dict(m)),members=ms,courses=cs,enrollments=es,records=rs,submissions=ss,library=lib,rosters=[{**r,'data':json.loads(r['data'])} for r in rows(rosters) if m['role']=='admin' or (m['role']=='teacher' and r['author_id']==m['id'] and r['course_id'] in ids)])
+ @app.post('/api/student-roster/preview')
+ def preview_roster():
+  teach(text(request.form.get('courseId')))
+  students,errors=parse_roster(request.files.get('file'))
+  return jsonify(students=students,errors=errors)
+ @app.get('/api/student-roster/template')
+ def roster_template():
+  require_member()
+  if g.member['role'] not in ['admin','teacher']:fail('Chỉ giáo viên và quản trị viên.',403)
+  from openpyxl import Workbook
+  w=Workbook();sheet=w.active;sheet.title='Danh sach hoc sinh'
+  sheet.append(['STT','Mã định danh Bộ GD&ĐT','Họ và tên'])
+  sheet.append([1,'HS001','Nguyễn Văn A']);sheet.cell(2,2).number_format='@'
+  sheet.column_dimensions['B'].width=30;sheet.column_dimensions['C'].width=35
+  out=io.BytesIO();w.save(out);out.seek(0)
+  return send_file(out,as_attachment=True,download_name='mau-danh-sach-hoc-sinh.xlsx')
  @app.post('/api/school')
  def action():
   p=body();a=p.get('action');m=g.member
-  if a=='member':
+  if a=='submitRoster':
+   cid=text(p.get('courseId'));teach(cid);students=roster_students(p.get('students'))
+   g.db.execute(insert(rosters).values(id=uid(),course_id=cid,author_id=m['id'],data=json.dumps(students,ensure_ascii=False),status='pending',created_at=now()))
+  elif a in ['approveRoster','rejectRoster']:
+   admin();rid=text(p.get('id'));r=g.db.execute(select(rosters).where(rosters.c.id==rid).with_for_update()).mappings().first()
+   if not r or r['status']!='pending':fail('Danh sách đã được xử lý hoặc không tồn tại.',409)
+   get_course(r['course_id']);credentials=[]
+   if a=='approveRoster':
+    for st in roster_students(json.loads(r['data'])):
+     existing=one(members,members.c.username==st['code'])
+     if existing:
+      if existing['role']!='student' or existing['disabled'] or normalized(existing['name'])!=normalized(st['name']):fail(f"Mã {st['code']} đã thuộc tài khoản khác hoặc bị khóa. Hãy kiểm tra trước khi duyệt.",409)
+      mid=existing['id'];pw='';note='Tài khoản đã có: giữ mật khẩu hiện tại'
+     else:
+      mid=uid();pw=secrets.token_urlsafe(12);note='Tài khoản mới'
+      g.db.execute(insert(members).values(id=mid,username=st['code'],password_hash=password(pw),name=st['name'],email='',role='student',disabled=0))
+     where=and_(enrollments.c.course_id==r['course_id'],enrollments.c.member_id==mid)
+     if not one(enrollments,where):g.db.execute(insert(enrollments).values(course_id=r['course_id'],member_id=mid))
+     credentials.append({'name':st['name'],'username':st['code'],'password':pw,'note':note})
+   g.db.execute(update(rosters).where(rosters.c.id==rid).values(status='approved' if a=='approveRoster' else 'rejected'))
+   return jsonify(ok=True,credentials=credentials)
+  elif a=='member':
    admin();role=p.get('role')
    if role not in ['teacher','student']:fail('Vai trò chưa hợp lệ.')
    g.db.execute(insert(members).values(id=uid(),username=username(p.get('username')),password_hash=password(p.get('password')),name=text(p.get('name')),email=text(p.get('email',''),200,False),role=role,disabled=0))
