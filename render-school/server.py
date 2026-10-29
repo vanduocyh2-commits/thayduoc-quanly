@@ -51,12 +51,14 @@ def create_app(config=None):
  elif url.startswith('postgresql://'):url='postgresql+psycopg://'+url[len('postgresql://'):]
  engine=create_engine(url,pool_pre_ping=True,**({'connect_args':{'check_same_thread':False}} if url.startswith('sqlite') else {'pool_size':5,'max_overflow':5}))
  app.extensions['school_engine']=engine
- metadata.create_all(engine)
  if engine.dialect.name=='postgresql':
   with engine.begin() as conn:
+   conn.execute(sql_text('SELECT pg_advisory_xact_lock(719246830)'))
+   metadata.create_all(conn)
    for table in metadata.sorted_tables:
     conn.execute(sql_text(f'ALTER TABLE {table.name} ENABLE ROW LEVEL SECURITY'))
     conn.execute(sql_text(f'REVOKE ALL ON TABLE {table.name} FROM PUBLIC'))
+ else:metadata.create_all(engine)
  app.wsgi_app=ProxyFix(app.wsgi_app,x_for=1,x_proto=1,x_host=0)
  cookie='school_session'
  def one(table,where):return g.db.execute(select(table).where(where)).mappings().first()
