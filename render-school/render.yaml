@@ -1,11 +1,14 @@
 services:
   - type: web
     name: thayduoc-nha-truong
-    runtime: python
+    runtime: docker
     plan: free
-    rootDir: render-school
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 60
+    branch: website-o-nha-doc-lap
+    dockerfilePath: ./render-school/Dockerfile
+    dockerContext: ./render-school
+    buildFilter:
+      paths:
+        - render-school/**
     healthCheckPath: /healthz
     envVars:
       - key: DATABASE_URL

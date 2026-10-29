@@ -4,11 +4,11 @@ Bản độc lập của kho thayduoc-quanly. Không sửa hoặc kết nối d�
 
 ## Không phụ thuộc ChatGPT
 
-Ứng dụng Python/Flask phục vụ giao diện React đã build sẵn trong static/. Không cần Sites, Cloudflare hay tài khoản ChatGPT. Mỗi giáo viên, học sinh dùng tên đăng nhập và mật khẩu riêng; quản trị viên cấp/khóa tài khoản, phân công lớp–môn và ghi danh học sinh. Phiên đăng nhập lưu trong cơ sở dữ liệu; mật khẩu được băm bằng scrypt; cookie HttpOnly/Secure/SameSite; kiểm tra Origin/CSRF và giới hạn đăng nhập sai. Đổi mật khẩu, đặt lại mật khẩu và khóa tài khoản thu hồi phiên đăng nhập cũ.
+Ứng dụng Python/Flask phục vụ giao diện React đã build sẵn trong static/. Docker đóng gói LibreOffice Writer và bộ phông chữ để tự chuyển đề Word sang PDF tại máy chủ. Không cần Sites, Cloudflare hay tài khoản ChatGPT. Mỗi giáo viên, học sinh dùng tên đăng nhập và mật khẩu riêng; quản trị viên cấp/khóa tài khoản, phân công lớp–môn và ghi danh học sinh. Phiên đăng nhập lưu trong cơ sở dữ liệu; mật khẩu được băm bằng scrypt; cookie HttpOnly/Secure/SameSite; kiểm tra Origin/CSRF và giới hạn đăng nhập sai. Đổi mật khẩu, đặt lại mật khẩu và khóa tài khoản thu hồi phiên đăng nhập cũ.
 
 ## Triển khai miễn phí
 
-Render web service: Free, thư mục gốc render-school; build `pip install -r requirements.txt`; start `gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 60`; health check `/healthz`.
+Render web service: Free, runtime Docker; nhánh `website-o-nha-doc-lap`, Dockerfile `render-school/Dockerfile`, build context `render-school`, Root Directory để trống, dùng CMD trong Dockerfile; health check `/healthz`. Với dịch vụ Python đã tồn tại, đổi runtime trong Settings → Build → Source, giữ nguyên URL, gói Free và các biến môi trường/cơ sở dữ liệu hiện có. Không tạo lại cơ sở dữ liệu. Đẩy code đơn thuần không tự chuyển runtime cho dịch vụ quản lý thủ công.
 
 Cấu hình đã chuẩn bị trong render.yaml ở thư mục này, chưa tạo dịch vụ hoặc cơ sở dữ liệu. Không cấu hình tự tạo tài nguyên có phí. PostgreSQL miễn phí của Render hết hạn sau 30 ngày; do đó cấu hình yêu cầu DATABASE_URL của một cơ sở dữ liệu PostgreSQL riêng đã được xác nhận là miễn phí (ví dụ dự án Supabase Free riêng). Không dùng chung database với trung tâm. Website từ chối khởi động nếu không có DATABASE_URL, để tránh vô tình lưu SQLite vào ổ tạm trên Render.
 
@@ -82,3 +82,12 @@ Thêm kiểm tra: `node --test test_upload_exam.mjs`; kiểm tra máy chủ gồ
 Giáo viên dùng **Bài tập & kiểm tra → Soạn đề → Tạo đề cương từ ma trận**. Mục Đề cương riêng trên thanh bên chỉ giữ cho học sinh đọc bản đã công bố. Nhập mục/chương/bài và yêu cầu giáo viên, rồi tạo khung theo dạng/mức độ của ma trận; lấy nội dung và yêu cầu cần đạt của câu hỏi đã soạn nếu có. Chức năng tạo khung không tự sinh kiến thức hoặc bài tập mới. Có yêu cầu AI kèm ma trận để sao chép và nhập JSON đề cương về xem, chỉnh sửa trước khi lưu.
 
 Đề cương lưu cùng một record ID, xuất hiện trong danh sách ở Soạn đề và trong Thư viện → Đề cương ôn tập. Hai nơi có bộ lọc mục → chương → bài; sửa/xóa sẽ đồng bộ vì không tạo bản sao. Nháp chỉ giáo viên trong lớp và quản trị viên xem, học sinh chỉ đọc bản công bố. Yêu cầu riêng giáo viên không gửi cho tài khoản học sinh. Xuất Word giữ các nhãn mục/chương/bài và công thức.
+
+
+## Tự chuyển đề Word sang PDF
+
+Khi chọn đề `.docx` trong **Tải đề từ ngoài lên**, máy chủ chuyển thành PDF và trả về trình duyệt để xem trước. File đưa vào đề thi và gửi cho học sinh là PDF; tên mã đề được giữ nguyên. Giáo viên kiểm tra bản xem trước, nhất là công thức, hình ảnh, phông chữ và ngắt trang, trước khi giao. LibreOffice có thể thay phông không có trên máy chủ; không bảo đảm mọi file Word giống tuyệt đối với Microsoft Word. File `.doc` cũ cần lưu lại thành `.docx`.
+
+Không gửi đề cho dịch vụ chuyển đổi bên ngoài. Tệp tạm/profile được xóa sau mỗi lần; bộ chuyển không nhận biến chứa mật khẩu hoặc kết nối cơ sở dữ liệu của ứng dụng. Mỗi lần chỉ chuyển một file, tối đa 40 giây; nguồn và PDF kết quả tối đa 5 MB. Nếu chuyển lỗi hoặc máy chủ chưa cài LibreOffice, báo lỗi và không giao bản Word cho học sinh. Bộ kiểm tra từ chối macro và hình/dữ liệu liên kết ngoài; cần nhúng hình vào Word trước khi tải. File PDF vốn có giữ nguyên. Đề Word đã lưu trước bản cập nhật cần tải lại để chuyển và lưu PDF; không tự sửa dữ liệu bài thi cũ đang diễn ra.
+
+Kiểm tra thêm: `python -m pytest -q test_pdf_conversion.py`; kiểm thử chuyển thật chạy khi có LibreOffice trong PATH. Dockerfile cài bộ chuyển và các phông Liberation, DejaVu, Noto, Carlito, Caladea và OpenSymbol. Kiểm tra Docker image bằng `docker build -t school-pdf render-school` ở gốc kho; môi trường phát triển cần có Docker để chạy bước này.

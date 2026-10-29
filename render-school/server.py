@@ -12,6 +12,7 @@ from sqlalchemy import create_engine,MetaData,Table,Column,String,Integer,Text,L
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text as sql_text
 from answer_keys import read_answer_keys
+from pdf_conversion import convert_docx_to_pdf,ConversionError
 
 metadata=MetaData()
 members=Table('school_members',metadata,Column('id',String,primary_key=True),Column('username',String,unique=True,nullable=False),Column('password_hash',Text,nullable=False),Column('name',String,nullable=False),Column('email',String),Column('role',String,nullable=False),Column('disabled',Integer,nullable=False,default=0))
@@ -144,6 +145,9 @@ def exam_upload(file):
    with zipfile.ZipFile(io.BytesIO(raw)) as z:
     if len(z.infolist())>2000 or sum(i.file_size for i in z.infolist())>20*1024*1024:fail('File Word sau giải nén quá lớn.')
     if '[Content_Types].xml' not in z.namelist() or 'word/document.xml' not in z.namelist() or any('vbaProject' in n for n in z.namelist()):fail('Cần file Word .docx không chứa macro.')
+    for relation_file in (n for n in z.namelist() if n.endswith('.rels')):
+     relations=ET.fromstring(z.read(relation_file))
+     if any(r.get('TargetMode')=='External' and not r.get('Type','').endswith('/hyperlink') for r in relations):fail('Word có hình ảnh hoặc dữ liệu liên kết ngoài. Hãy nhúng nội dung vào file trước khi tải.')
     root=ET.fromstring(z.read('word/document.xml'))
     ns={'w':'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
     preview='\n'.join(''.join(n.text or '' for n in paragraph.iter() if n.tag.endswith('}t')) for paragraph in root.findall('.//w:p',ns))[:20000]
@@ -155,6 +159,10 @@ def exam_upload(file):
   if '\x00' in preview:fail('File không phải văn bản hợp lệ.')
   preview=preview[:20000]
  name=secure_filename(file.filename) or 'de-thi'+ext
+ if ext=='.docx':
+  try:raw=convert_docx_to_pdf(raw)
+  except ConversionError as error:fail(str(error),503)
+  name=str(Path(name).with_suffix('.pdf'));ext='.pdf';preview=''
  return {'name':name,'mime':allowed[ext],'content':raw,'size':len(raw),'preview':preview}
 def outline_data(p):
  if not isinstance(p,dict):fail('Đề cương chưa hợp lệ.')
@@ -657,6 +665,14 @@ def create_app(config=None):
  def inspect_exam():
   teach(text(request.form.get('courseId')));uploaded=exam_upload(request.files.get('file'))
   return jsonify(**{k:uploaded[k] for k in ['name','mime','size','preview']})
+ @app.post('/api/exams/convert')
+ def convert_exam_word():
+  teach(text(request.form.get('courseId')));file=request.files.get('file')
+  if not file or not file.filename.lower().endswith('.docx'):fail('Chọn đề Word .docx để chuyển sang PDF.')
+  uploaded=exam_upload(file)
+  response=send_file(io.BytesIO(uploaded['content']),mimetype='application/pdf',download_name=uploaded['name'],as_attachment=True,max_age=0)
+  response.headers['Cache-Control']='no-store'
+  return response
  @app.post('/api/outlines')
  def save_outline():
   p=body();cid=text(p.get('courseId'));c=teach(cid);d=outline_data(p.get('data') or {});d['subject']=c['subject'];rid=text(p.get('id')) if p.get('id') else uid();existing=one(records,records.c.id==rid)
