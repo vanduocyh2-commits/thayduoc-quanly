@@ -11,6 +11,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from sqlalchemy import create_engine,MetaData,Table,Column,String,Integer,Text,LargeBinary,ForeignKey,UniqueConstraint,select,insert,update,delete,and_,func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text as sql_text
+from answer_keys import read_answer_keys
 
 metadata=MetaData()
 members=Table('school_members',metadata,Column('id',String,primary_key=True),Column('username',String,unique=True,nullable=False),Column('password_hash',Text,nullable=False),Column('name',String,nullable=False),Column('email',String),Column('role',String,nullable=False),Column('disabled',Integer,nullable=False,default=0))
@@ -635,33 +636,23 @@ def create_app(config=None):
   from openpyxl import Workbook
   require_member()
   if g.member['role']=='student':fail('Chỉ giáo viên dùng mẫu đáp án.',403)
-  wb=Workbook();ws=wb.active;ws.title='Đáp án';ws.append(['Ma de','Dang','Cau','Dap an'])
-  for row in [['101','quiz',1,'A'],['101','quiz',2,'C'],['101','truefalse',1,'Đ S Đ S'],['101','short',1,'2,5']]:ws.append(row)
-  for col in 'ABCD':ws.column_dimensions[col].width=22
+  wb=Workbook();ws=wb.active;ws.title='Đáp án TN Maker';ws.append(['Câu\\Mã Đề','101','102','103','104'])
+  for count,answer in [(12,'A'),(4,'ĐĐSS'),(6,'0,25')]:
+   for number in range(1,count+1):ws.append([number]+[answer]*4)
+  ws.freeze_panes='B2'
+  for col in 'ABCDE':ws.column_dimensions[col].width=22
   out=io.BytesIO();wb.save(out);out.seek(0)
-  return send_file(out,as_attachment=True,download_name='mau-dap-an-ma-de.xlsx')
+  return send_file(out,as_attachment=True,download_name='mau-dap-an-tn-maker.xlsx')
  @app.post('/api/exams/keys')
  def exam_keys():
-  from openpyxl import load_workbook
   teach(text(request.form.get('courseId')));file=request.files.get('file')
-  if not file or not file.filename.lower().endswith('.xlsx'):fail('Chọn đáp án Excel .xlsx theo mẫu.')
+  if not file or not file.filename.lower().endswith('.xlsx'):fail('Chọn file đáp án TN Maker .xlsx.')
   raw=file.stream.read(2*1024*1024+1)
   if len(raw)>2*1024*1024:fail('File đáp án tối đa 2 MB.')
   try:
-   with zipfile.ZipFile(io.BytesIO(raw)) as z:
-    if sum(i.file_size for i in z.infolist())>20*1024*1024:fail('File đáp án sau giải nén quá lớn.')
-   wb=load_workbook(io.BytesIO(raw),read_only=True,data_only=True);ws=wb.active;values=list(ws.iter_rows(max_row=1002,max_col=4,values_only=True));wb.close()
-   if len(values)>1001:fail('Tối đa 1000 dòng đáp án.')
-   if [str(x or '').strip() for x in values[0]]!=['Ma de','Dang','Cau','Dap an']:fail('Tiêu đề Excel cần theo đúng mẫu tải xuống.')
-   out=[]
-   for row in values[1:]:
-    if not any(v is not None for v in row):continue
-    code,kind,number,answer=row
-    if kind not in ['quiz','truefalse','short'] or type(number) not in [int,float] or int(number)!=number:fail('Dạng hoặc số câu chưa đúng mẫu.')
-    out.append(dict(code=str(code),type=kind,number=int(number),answer=str(answer) if answer is not None else ''))
-   return jsonify(rows=out)
-  except AppError:raise
-  except Exception:fail('Không đọc được Excel đáp án. Hãy dùng mẫu .xlsx không có mật khẩu.')
+   return jsonify(rows=read_answer_keys(raw))
+  except ValueError as error:fail(str(error))
+  except Exception:fail('Không đọc được Excel đáp án. Hãy dùng file TN Maker .xlsx không có mật khẩu.')
  @app.post('/api/exams/inspect')
  def inspect_exam():
   teach(text(request.form.get('courseId')));uploaded=exam_upload(request.files.get('file'))

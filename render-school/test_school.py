@@ -374,3 +374,18 @@ def test_matrix_outline_shared_identity_hierarchy_and_private_instructions(clien
  with zipfile.ZipFile(io.BytesIO(student.get('/api/outlines/'+rid+'/word').data)) as z:assert 'Chương I' in z.read('word/document.xml').decode()
  assert action(teacher,dict(action='deleteRecord',id=rid)).status_code==200
  s=state(teacher);assert not any(r['id']==rid for r in s['records']+s['library'])
+
+def test_tn_maker_upload_and_download_template(client,app):
+ import io
+ from openpyxl import load_workbook
+ from test_answer_keys import excel,matrix
+ cid,cs=upload_test_accounts(client,app);teacher=cs['teacher'];student=cs['student']
+ def upload(c,raw):return c.post('/api/exams/keys',data={'courseId':cid,'file':(io.BytesIO(raw),'tn-maker.xlsx')},headers={'Origin':'http://localhost','X-CSRF-Token':token(c)})
+ r=upload(teacher,excel(matrix()));assert r.status_code==200 and len(r.json['rows'])==10
+ assert any(row==dict(code='101',type='truefalse',number=1,answer='Đ Đ S S') for row in r.json['rows'])
+ assert upload(student,excel(matrix())).status_code==403
+ assert upload(teacher,excel([['Câu\\Mã Đề','101'],[1,None]])).status_code==400
+ r=teacher.get('/api/exams/key-template');assert r.status_code==200
+ assert 'tn-maker.xlsx' in r.headers['Content-Disposition']
+ wb=load_workbook(io.BytesIO(r.data));assert wb.active.cell(1,1).value=='Câu\\Mã Đề';assert wb.active.max_row==23
+ r=upload(teacher,r.data);assert r.status_code==200 and len(r.json['rows'])==88

@@ -1,5 +1,5 @@
 const labels={quiz:'Trắc nghiệm',truefalse:'Đúng / Sai',short:'Trả lời ngắn',essay:'Tự luận'};
-export const defaultUploadStructure=()=>[{type:'quiz',count:12,points:.25},{type:'truefalse',count:2,points:1},{type:'short',count:4,points:.5},{type:'essay',count:3,points:1}];
+export const defaultUploadStructure=()=>[{type:'quiz',count:12,points:.25},{type:'truefalse',count:4,points:1},{type:'short',count:6,points:.5},{type:'essay',count:0,points:1}];
 export function uploadedQuestions(structure,keys,topic='Nội dung đề đính kèm'){
  if(structure.some(r=>!Number.isInteger(r.count)||r.count<0||r.count>100||!Number.isFinite(r.points)||r.points<=0)||structure.reduce((n,r)=>n+r.count,0)>100)throw Error('Số câu phải nguyên, tối đa 100 câu; điểm/câu phải lớn hơn 0.');
  if(Math.abs(structure.reduce((n,r)=>n+r.count*r.points,0)-10)>.001)throw Error('Cấu trúc đề phải đủ 10 điểm để tự chấm.');
@@ -17,4 +17,11 @@ export function uploadedQuestions(structure,keys,topic='Nội dung đề đính 
 }
 export function keysFromRows(rows){const keys={};for(const row of rows){const code=String(row.code),type=row.type;if(!/^\d{3,4}$/.test(code)||!['quiz','truefalse','short'].includes(type)||!Number.isInteger(Number(row.number))||Number(row.number)<1||Number(row.number)>100)throw Error('Đáp án cần mã đề 3–4 số, dạng quiz/truefalse/short và số câu 1–100.');keys[code]??={quiz:[],truefalse:[],short:[]};if(keys[code][type][Number(row.number)-1]!==undefined)throw Error('Trùng đáp án cùng mã đề, dạng và số câu.');keys[code][type][Number(row.number)-1]=String(row.answer??'');}
  const result={};for(const [code,k] of Object.entries(keys)){for(const values of Object.values(k))for(let i=0;i<values.length;i++)if(values[i]===undefined)throw Error('Số thứ tự câu trong mỗi dạng phải liên tục, bắt đầu từ 1.');result[code]={quiz:k.quiz.join(' '),truefalse:k.truefalse.join('\n'),short:k.short.join('\n')};}return result;
+}
+
+export function structureFromKeys(structure, keys){
+ const counts=Object.values(keys).map(k=>({quiz:k.quiz.trim()?k.quiz.trim().split(/\s+/).length:0,truefalse:k.truefalse.trim()?k.truefalse.trim().split('\n').length:0,short:k.short.trim()?k.short.trim().split('\n').length:0}));
+ if(!counts.length)throw Error('File chưa có đáp án.');
+ if(counts.some(c=>Object.keys(c).some(type=>c[type]!==counts[0][type])))throw Error('Các mã đề cần có cùng số câu trong từng dạng.');
+ return structure.map(row=>row.type==='essay'?row:{...row,count:counts[0][row.type]});
 }
