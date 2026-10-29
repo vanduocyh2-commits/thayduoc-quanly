@@ -165,11 +165,22 @@ def outline_data(p):
  for section in sections:
   if not isinstance(section,dict):fail('Chủ đề chưa hợp lệ.')
   value={'topic':text(section.get('topic'),200)}
+  for k in ['heading','chapter','lesson']:value[k]=text(section.get(k,''),200,False)
   for k in ['objectives','theory','exercises']:value[k]=text(section.get(k,''),10000,False)
   if not any(value[k] for k in ['objectives','theory','exercises']):fail('Mỗi chủ đề cần nội dung ôn tập hoặc bài tập.')
   out.append(value)
  if sum(len(v) for a in out for v in a.values())>100000:fail('Đề cương quá dài; hãy tách thành nhiều phần.')
- return dict(title=title,grade=grade,body=text(p.get('body',''),10000,False),sections=out,published=p.get('published') is True)
+ matrix=p.get('sourceMatrix',[])
+ if not isinstance(matrix,list) or len(matrix)>100:fail('Ma trận nguồn không hợp lệ.')
+ cleaned=[]
+ for r in matrix:
+  if not isinstance(r,dict) or r.get('type') not in ['quiz','truefalse','short','essay']:fail('Dạng câu trong ma trận không hợp lệ.')
+  counts=r.get('counts')
+  if not isinstance(counts,list) or len(counts)!=4 or any(type(n) is not int or not 0<=n<=100 for n in counts):fail('Phân bố ma trận không hợp lệ.')
+  points=r.get('points',0)
+  if type(points) not in [int,float] or not math.isfinite(points) or not 0<=points<=10:fail('Điểm ma trận không hợp lệ.')
+  cleaned.append(dict(type=r['type'],topic=text(r.get('topic'),200),counts=counts,count=sum(counts),points=points))
+ return dict(title=title,grade=grade,body=text(p.get('body',''),10000,False),sections=out,published=p.get('published') is True,inLibrary=p.get('inLibrary',True) is True,requirements=text(p.get('requirements',''),10000,False),sourceMatrix=cleaned)
 
 def password(v):
  if not isinstance(v,str) or not 10<=len(v)<=200:fail('Mật khẩu cần từ 10 đến 200 ký tự.')
@@ -375,7 +386,9 @@ def create_app(config=None):
    c=next(c for c in cs if c['id']==r['course_id']);d=json.loads(r['data'])
    if not may_teach(m,c):
     if r['kind'] in ['attendance','grade','message'] and d.get('memberId') not in [m['id'],'all'] and r['author_id']!=m['id']:continue
-    if r['kind']=='outline' and not d.get('published'):continue
+    if r['kind']=='outline':
+     if not d.get('published'):continue
+     d.pop('requirements',None)
     if r['kind']=='assignment':
      d=assigned_exam(d,r['id'],m['id']);d.pop('variants',None)
      d.pop('answerNotes',None)
@@ -388,8 +401,12 @@ def create_app(config=None):
    if a and a['course_id'] in ids and (m['role']!='student' or sub['member_id']==m['id']):ss.append({**sub,'data':json.loads(sub['data'])})
   lib=[]
   for r in sorted(all_rs,key=lambda x:x['created_at'],reverse=True):
-   if r['kind']!='library':continue
+   if r['kind'] not in ['library','outline']:continue
    d=json.loads(r['data'])
+   if r['kind']=='outline':
+    if r['course_id'] not in ids or not d.get('inLibrary',True):continue
+    d['category']='outline'
+    if m['role']=='student':d.pop('requirements',None)
    if m['role']=='student' and (r['course_id'] not in ids or not d.get('published')):continue
    c=next((c for c in all_cs if c['id']==r['course_id']),None)
    lib.append({**r,'data':d,'course_label':(c['name']+' · '+c['subject']) if c else 'Lớp / môn đã xóa','author_name':next((x['name'] for x in all_ms if x['id']==r['author_id']),'Giáo viên')})

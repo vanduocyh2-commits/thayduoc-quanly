@@ -356,3 +356,21 @@ def test_opening_time_and_answer_excel(client,app):
  assert r.status_code==200 and r.json['rows'][0]['answer']=='A'
  assert teacher.get('/api/exams/key-template').status_code==200
  assert student.get('/api/exams/key-template').status_code==403
+
+def test_matrix_outline_shared_identity_hierarchy_and_private_instructions(client,app):
+ import io,zipfile
+ cid,cs=upload_test_accounts(client,app);teacher=cs['teacher'];student=cs['student']
+ d=dict(title='Đề cương từ ma trận',grade='12',requirements='Yêu cầu riêng giáo viên',sourceMatrix=[dict(type='quiz',topic='Hàm số',points=.25,counts=[2,1,1,0])],inLibrary=True,published=False,sections=[dict(heading='Ôn tập',chapter='Chương I',lesson='Bài 1',topic='Hàm số',theory='Nội dung trọng tâm')])
+ r=post(teacher,'/api/outlines',dict(courseId=cid,data=d),token(teacher));assert r.status_code==200;rid=r.json['id']
+ s=state(teacher);a=next(r for r in s['records'] if r['id']==rid);b=next(r for r in s['library'] if r['id']==rid)
+ assert a['id']==b['id'] and b['data']['category']=='outline'
+ assert b['data']['sections'][0]['chapter']=='Chương I';assert a['data']['sourceMatrix'][0]['counts']==[2,1,1,0]
+ assert not any(r['id']==rid for r in state(student)['library'])
+ d['title']='Đã chỉnh sửa';d['published']=True
+ assert post(teacher,'/api/outlines',dict(id=rid,courseId=cid,data=d),token(teacher)).status_code==200
+ s=state(student);a=next(r for r in s['records'] if r['id']==rid);b=next(r for r in s['library'] if r['id']==rid)
+ assert a['data']['title']==b['data']['title']=='Đã chỉnh sửa'
+ assert 'requirements' not in a['data'] and 'requirements' not in b['data']
+ with zipfile.ZipFile(io.BytesIO(student.get('/api/outlines/'+rid+'/word').data)) as z:assert 'Chương I' in z.read('word/document.xml').decode()
+ assert action(teacher,dict(action='deleteRecord',id=rid)).status_code==200
+ s=state(teacher);assert not any(r['id']==rid for r in s['records']+s['library'])

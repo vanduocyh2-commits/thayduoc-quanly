@@ -103,6 +103,8 @@ def standalone_outline_doc(data):
  doc=new_doc(data['title']);doc.add_paragraph(f"Môn: {data['subject']} · Khối: {data['grade']}")
  if data.get('body'):add_content(doc.add_paragraph(),data['body'])
  for i,section in enumerate(data['sections']):
+  path=' → '.join(section.get(k,'') for k in ['heading','chapter','lesson'] if section.get(k))
+  if path:doc.add_paragraph(path)
   doc.add_heading(f"{i+1}. {section['topic']}",level=1)
   for key,label in [('objectives','Yêu cầu cần đạt'),('theory','Kiến thức trọng tâm'),('exercises','Bài tập ôn luyện')]:
    if section.get(key):

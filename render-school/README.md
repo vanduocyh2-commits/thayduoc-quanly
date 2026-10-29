@@ -75,3 +75,10 @@ Có thể nhập một JSON câu hỏi theo mẫu thay vì tệp mã đề. JSON
 Lịch giao bài có giờ bắt đầu, hạn nộp; số lần làm 1–100 hoặc 0 không giới hạn. Máy chủ kiểm tra thời gian, quyền tải đúng mã đề và số lần nộp. Điểm hiển thị là lần nộp mới nhất; giữ tối đa 20 lần nộp trước trong lịch sử để giáo viên xem. Bài cũ mặc định một lần làm. Thời lượng trên đề vẫn là thông tin dự kiến, không phải bộ đếm tự nộp.
 
 Thêm kiểm tra: `node --test test_upload_exam.mjs`; kiểm tra máy chủ gồm đề cương nháp/công bố, Word/Excel, các mã tệp, giới hạn nộp và lịch mở bài.
+
+
+## Đề cương từ ma trận trong Soạn đề
+
+Giáo viên dùng **Bài tập & kiểm tra → Soạn đề → Tạo đề cương từ ma trận**. Mục Đề cương riêng trên thanh bên chỉ giữ cho học sinh đọc bản đã công bố. Nhập mục/chương/bài và yêu cầu giáo viên, rồi tạo khung theo dạng/mức độ của ma trận; lấy nội dung và yêu cầu cần đạt của câu hỏi đã soạn nếu có. Chức năng tạo khung không tự sinh kiến thức hoặc bài tập mới. Có yêu cầu AI kèm ma trận để sao chép và nhập JSON đề cương về xem, chỉnh sửa trước khi lưu.
+
+Đề cương lưu cùng một record ID, xuất hiện trong danh sách ở Soạn đề và trong Thư viện → Đề cương ôn tập. Hai nơi có bộ lọc mục → chương → bài; sửa/xóa sẽ đồng bộ vì không tạo bản sao. Nháp chỉ giáo viên trong lớp và quản trị viên xem, học sinh chỉ đọc bản công bố. Yêu cầu riêng giáo viên không gửi cho tài khoản học sinh. Xuất Word giữ các nhãn mục/chương/bài và công thức.
