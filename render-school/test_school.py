@@ -197,3 +197,40 @@ def test_roster_excel(client,app):
  assert upload(t,out.getvalue()).json['errors']
  template=t.get('/api/student-roster/template');assert template.status_code==200
  assert client.get('/api/student-roster/template').status_code==200
+
+def test_pdf_and_mixed_exam(client,app):
+ import io,json
+ setup(client)
+ for u,role in [('teacher','teacher'),('student','student'),('outsider','student')]:
+  assert action(client,dict(action='member',name=u,username=u,password='Password123!',role=role)).status_code==200
+ ms={m['username']:m['id'] for m in state(client)['members']}
+ action(client,dict(action='course',name='12A1',subject='Toán',teacherId=ms['teacher']))
+ cid=state(client)['courses'][0]['id'];action(client,dict(action='enroll',courseId=cid,memberId=ms['student']))
+ teacher=app.test_client();student=app.test_client();other=app.test_client()
+ login(teacher,'teacher');login(student,'student');login(other,'outsider')
+ def upload(d,raw=None):
+  data={'payload':json.dumps(dict(action='record',kind='assignment',courseId=cid,data=d))}
+  if raw:data['file']=(io.BytesIO(raw),'exam.pdf')
+  return teacher.post('/api/exams',data=data,headers={'Origin':'http://localhost','X-CSRF-Token':token(teacher)})
+ d=dict(title='Đề PDF',body='Làm bài',type='essay',questions=[],essays=[])
+ assert upload(d,b'not pdf').status_code==400
+ assert upload(d,b'%PDF-1.4\n'+b'x'*180000).status_code==200
+ a=state(teacher)['records'][0];url=a['data']['file']['url']
+ assert student.get(url).status_code==200
+ assert other.get(url).status_code==403
+ assert app.test_client().get(url).status_code==401
+ q=dict(text='1+1?',answers=['1','2','3','4'],correct=1,points=4,topic='Số',level='Nhận biết')
+ essay=dict(text='Giải thích',points=6,topic='Số',level='Thông hiểu')
+ d=dict(title='Đề kết hợp',body='Làm bài',type='mixed',composed=True,questions=[q],essays=[essay])
+ assert upload(d).status_code==200
+ a=next(r for r in state(student)['records'] if r['data']['title']=='Đề kết hợp')
+ assert 'correct' not in a['data']['questions'][0]
+ assert action(student,dict(action='submit',assignmentId=a['id'],answers=[1],text='Giải thích kết quả')).status_code==200
+ sub=state(teacher)['submissions'][0]
+ assert sub['data']['quizScore']==4 and sub['data']['score'] is None
+ assert action(teacher,dict(action='grade',id=sub['id'],score=9,feedback='Tốt')).status_code==200
+ d['essays'][0]['points']=5
+ assert upload(d).status_code==400
+ a=next(r for r in state(teacher)['records'] if r['data']['title']=='Đề PDF')
+ assert action(teacher,dict(action='deleteRecord',id=a['id'])).status_code==200
+ assert student.get(url).status_code==404
