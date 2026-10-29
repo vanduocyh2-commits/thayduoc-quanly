@@ -91,3 +91,5 @@ Khi chọn đề `.docx` trong **Tải đề từ ngoài lên**, máy chủ chuy
 Không gửi đề cho dịch vụ chuyển đổi bên ngoài. Tệp tạm/profile được xóa sau mỗi lần; bộ chuyển không nhận biến chứa mật khẩu hoặc kết nối cơ sở dữ liệu của ứng dụng. Mỗi lần chỉ chuyển một file, tối đa 40 giây; nguồn và PDF kết quả tối đa 5 MB. Nếu chuyển lỗi hoặc máy chủ chưa cài LibreOffice, báo lỗi và không giao bản Word cho học sinh. Bộ kiểm tra từ chối macro và hình/dữ liệu liên kết ngoài; cần nhúng hình vào Word trước khi tải. File PDF vốn có giữ nguyên. Đề Word đã lưu trước bản cập nhật cần tải lại để chuyển và lưu PDF; không tự sửa dữ liệu bài thi cũ đang diễn ra.
 
 Kiểm tra thêm: `python -m pytest -q test_pdf_conversion.py`; kiểm thử chuyển thật chạy khi có LibreOffice trong PATH. Dockerfile cài bộ chuyển và các phông Liberation, DejaVu, Noto, Carlito, Caladea và OpenSymbol. Kiểm tra Docker image bằng `docker build -t school-pdf render-school` ở gốc kho; môi trường phát triển cần có Docker để chạy bước này.
+
+Docker build thử chuyển một file Word bằng chính LibreOffice trong image dưới tài khoản school trước khi cho phép triển khai; lỗi chuyển đổi sẽ chặn build, giữ bản đang chạy.
