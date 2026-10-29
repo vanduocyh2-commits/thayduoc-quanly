@@ -13,6 +13,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text as sql_text
 from answer_keys import read_answer_keys
 from pdf_conversion import convert_docx_to_pdf,ConversionError
+from exam_results import with_best_result,grade_attempt
+from school_uploads import read_attachment
 
 metadata=MetaData()
 members=Table('school_members',metadata,Column('id',String,primary_key=True),Column('username',String,unique=True,nullable=False),Column('password_hash',Text,nullable=False),Column('name',String,nullable=False),Column('email',String),Column('role',String,nullable=False),Column('disabled',Integer,nullable=False,default=0))
@@ -28,6 +30,8 @@ library_files=Table('school_library_files',metadata,Column('id',String,primary_k
 exam_files=Table('school_exam_variant_files',metadata,Column('id',String,primary_key=True),Column('record_id',String,ForeignKey('school_records.id'),nullable=False),Column('code',String,nullable=False),Column('name',String,nullable=False),Column('mime',String,nullable=False),Column('size',Integer,nullable=False),Column('content',LargeBinary,nullable=False),UniqueConstraint('record_id','code'))
 
 rosters=Table('school_rosters',metadata,Column('id',String,primary_key=True),Column('course_id',String,ForeignKey('school_courses.id'),nullable=False),Column('author_id',String,ForeignKey('school_members.id'),nullable=False),Column('data',Text,nullable=False),Column('status',String,nullable=False),Column('created_at',String,nullable=False))
+submission_files=Table('school_submission_files',metadata,Column('id',String,primary_key=True),Column('submission_id',String,ForeignKey('school_submissions.id'),nullable=False),Column('attempt_count',Integer,nullable=False),Column('name',String,nullable=False),Column('mime',String,nullable=False),Column('size',Integer,nullable=False),Column('content',LargeBinary,nullable=False))
+exam_resources=Table('school_exam_resources',metadata,Column('id',String,primary_key=True),Column('record_id',String,ForeignKey('school_records.id'),nullable=False),Column('kind',String,nullable=False),Column('name',String,nullable=False),Column('mime',String,nullable=False),Column('size',Integer,nullable=False),Column('content',LargeBinary,nullable=False),UniqueConstraint('record_id','kind'))
 
 class AppError(Exception):
  def __init__(self,message,status=400):self.message=message;self.status=status
@@ -69,7 +73,7 @@ def assigned_exam(data,rid,mid):
  variants=data.get('variants',[])
  if not variants:return data
  index=int(hashlib.sha256((rid+':'+mid).encode()).hexdigest(),16)%len(variants)
- v=variants[index]
+ v=next((v for v in variants if data.get('codePolicy')=='fixed' and v['code']==data.get('fixedExamCode')),variants[index])
  return {**data,'questions':v['questions'],'essays':v['essays'],'examCode':v['code'],'file':v.get('file',data.get('file'))}
 def question_signature(q):
  kind=q.get('type','quiz')
@@ -278,7 +282,7 @@ def create_app(config=None):
  cookie='school_session'
  def one(table,where):return g.db.execute(select(table).where(where)).mappings().first()
  def rows(table):return [dict(x) for x in g.db.execute(select(table)).mappings()]
- def stored_file_bytes():return sum(g.db.execute(select(func.coalesce(func.sum(t.c.size),0))).scalar_one() for t in [library_files,exam_files])
+ def stored_file_bytes():return sum(g.db.execute(select(func.coalesce(func.sum(t.c.size),0))).scalar_one() for t in [library_files,exam_files,submission_files,exam_resources])
  def origin():
   if request.headers.get('Origin')!=request.host_url.rstrip('/'):fail('Nguồn yêu cầu không hợp lệ.',403)
  def body():
@@ -302,6 +306,46 @@ def create_app(config=None):
   return c
  def require_member():
   if not g.member:fail('Bạn cần đăng nhập.',401)
+ def reactivate_removed_student(cid,mid):
+  rid='removed:'+cid+':'+mid;r=one(records,records.c.id==rid)
+  if r:
+   d=json.loads(r['data']);d['restoredAt']=now();g.db.execute(update(records).where(records.c.id==rid).values(data=json.dumps(d,ensure_ascii=False)))
+ def remove_roster_student(cid,mid):
+  teach(cid);g.db.execute(select(courses).where(courses.c.id==cid).with_for_update()).first()
+  pupil=one(members,and_(members.c.id==mid,members.c.role=='student'))
+  where=and_(enrollments.c.course_id==cid,enrollments.c.member_id==mid)
+  if not pupil or not one(enrollments,where):fail('Học sinh không còn trong lớp / môn này.',404)
+  backups=[]
+  for roster in g.db.execute(select(rosters).where(rosters.c.course_id==cid).with_for_update()).mappings():
+   students=json.loads(roster['data']);matches=[st for st in students if st.get('code')==pupil['username']]
+   if not matches:continue
+   remaining=[st for st in students if st.get('code')!=pupil['username']]
+   backups.append(dict(id=roster['id'],students=matches,status=roster['status']))
+   g.db.execute(update(rosters).where(rosters.c.id==roster['id']).values(data=json.dumps(remaining,ensure_ascii=False),status='rejected' if not remaining and roster['status']=='pending' else roster['status']))
+  data=dict(memberId=mid,name=pupil['name'],code=pupil['username'],removedAt=now(),removedBy=g.member['id'],rosterRows=backups)
+  rid='removed:'+cid+':'+mid;values=dict(course_id=cid,kind='rosterRemoval',author_id=g.member['id'],created_at=now(),data=json.dumps(data,ensure_ascii=False))
+  if one(records,records.c.id==rid):g.db.execute(update(records).where(records.c.id==rid).values(**values))
+  else:g.db.execute(insert(records).values(id=rid,**values))
+  g.db.execute(delete(enrollments).where(where))
+ def restore_roster_student(rid):
+  r=one(records,and_(records.c.id==rid,records.c.kind=='rosterRemoval'))
+  if not r:fail('Không tìm thấy học sinh đã xóa.',404)
+  teach(r['course_id']);g.db.execute(select(courses).where(courses.c.id==r['course_id']).with_for_update()).first()
+  r=g.db.execute(select(records).where(records.c.id==rid).with_for_update()).mappings().first();d=json.loads(r['data'])
+  if d.get('restoredAt'):fail('Học sinh đã được khôi phục.',409)
+  pupil=one(members,and_(members.c.id==d['memberId'],members.c.role=='student',members.c.disabled==0))
+  if not pupil:fail('Tài khoản học sinh đang khóa hoặc không tồn tại. Nhờ quản trị viên kiểm tra.',409)
+  where=and_(enrollments.c.course_id==r['course_id'],enrollments.c.member_id==pupil['id'])
+  if not one(enrollments,where):g.db.execute(insert(enrollments).values(course_id=r['course_id'],member_id=pupil['id']))
+  for backup in d.get('rosterRows',[]):
+   roster=one(rosters,and_(rosters.c.id==backup['id'],rosters.c.course_id==r['course_id']))
+   if not roster:continue
+   students=json.loads(roster['data'])
+   for st in backup['students']:
+    if not any(row.get('code')==st['code'] for row in students):students.append(st)
+   status=backup['status'] if not json.loads(roster['data']) and roster['status']=='rejected' else roster['status']
+   g.db.execute(update(rosters).where(rosters.c.id==roster['id']).values(data=json.dumps(students,ensure_ascii=False),status=status))
+  reactivate_removed_student(r['course_id'],pupil['id'])
  def ratekeys(user):
   return [('ip:'+request.remote_addr,30),('user:'+user,10)]
  def check_rate(user):
@@ -348,7 +392,7 @@ def create_app(config=None):
    else:g.db.rollback()
   res.headers['X-Content-Type-Options']='nosniff';res.headers['Referrer-Policy']='same-origin';res.headers['X-Frame-Options']='DENY'
   res.headers['Content-Security-Policy']="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; frame-src 'self' blob:; base-uri 'self'; form-action 'self'"
-  if request.path.startswith('/api/exams/') and ('/files/' in request.path or request.path.endswith('/file')) and request.args.get('preview')=='1' and res.mimetype=='application/pdf':
+  if request.path.startswith(('/api/exams/','/api/submissions/')) and request.args.get('preview')=='1' and res.mimetype=='application/pdf':
    res.headers['X-Frame-Options']='SAMEORIGIN';res.headers['Content-Security-Policy']="default-src 'none'; frame-ancestors 'self'"
   if request.path.startswith('/api/'):res.headers['Cache-Control']='no-store'
   return res
@@ -389,10 +433,14 @@ def create_app(config=None):
   if m['role']!='admin':ms=[x for x in ms if x['id']==m['id'] or any(c['teacher_id']==x['id'] for c in cs) or (m['role']=='teacher' and any(e['member_id']==x['id'] for e in es))]
   ms=[public_member(x) for x in ms]
   if m['role']!='admin':ms=[{k:v for k,v in x.items() if k not in ['email','username'] or x['id']==m['id']} for x in ms]
-  all_rs=rows(records);rs=[]
+  all_rs=rows(records);all_subs=rows(submissions);submitted_ids={sub['assignment_id'] for sub in all_subs if sub['member_id']==m['id']};rs=[];removed=[];active_enrollments={(e['course_id'],e['member_id']) for e in all_es}
   for r in sorted(all_rs,key=lambda x:x['created_at'],reverse=True):
    if r['kind']=='library' or r['course_id'] not in ids:continue
    c=next(c for c in cs if c['id']==r['course_id']);d=json.loads(r['data'])
+   if r['kind']=='rosterRemoval':
+    if m['role']!='student' and not d.get('restoredAt'):removed.append({k:v for k,v in {**d,'id':r['id'],'course_id':r['course_id']}.items() if k in ['id','course_id','memberId','name','code','removedAt']})
+    continue
+   if r['kind'] in ['attendance','grade'] and (r['course_id'],d.get('memberId')) not in active_enrollments:continue
    if not may_teach(m,c):
     if r['kind'] in ['attendance','grade','message'] and d.get('memberId') not in [m['id'],'all'] and r['author_id']!=m['id']:continue
     if r['kind']=='outline':
@@ -400,14 +448,24 @@ def create_app(config=None):
      d.pop('requirements',None)
     if r['kind']=='assignment':
      d=assigned_exam(d,r['id'],m['id']);d.pop('variants',None)
-     d.pop('answerNotes',None)
-     for field in ['questions','essays']:d[field]=[{k:v for k,v in q.items() if k not in ['correct','outcome']} for q in d.get(field,[])]
+     show_answers=d.get('allowViewAnswers',False) and r['id'] in submitted_ids
+     if not show_answers:
+      for field in ['answerNotes','answerGuide','resources']:d.pop(field,None)
+     for field in ['questions','essays']:d[field]=[{k:v for k,v in q.items() if k!='outcome' and (k!='correct' or show_answers)} for q in d.get(field,[])]
      if d.get('opensAt') and time.time()<parse_date(d['opensAt']):d.update(questions=[],essays=[]);d.pop('file',None)
    rs.append({**r,'data':d})
   ss=[]
-  for sub in rows(submissions):
+  for sub in all_subs:
    a=next((r for r in all_rs if r['id']==sub['assignment_id']),None)
-   if a and a['course_id'] in ids and (m['role']!='student' or sub['member_id']==m['id']):ss.append({**sub,'data':json.loads(sub['data'])})
+   if a and a['course_id'] in ids and (a['course_id'],sub['member_id']) in active_enrollments and (m['role']!='student' or sub['member_id']==m['id']):
+    sd=with_best_result(json.loads(sub['data']),sub['created_at'])
+    if m['role']=='student' and not json.loads(a['data']).get('allowViewScore',True):
+     sd['scoreHidden']=True
+     for row in [sd]+sd.get('history',[])+sd.get('attemptScores',[])+([sd['bestAttempt']] if sd.get('bestAttempt') else []):
+      row['score']=None
+      for key in ['quizScore','feedback','gradedAt','gradedBy']:row.pop(key,None)
+     sd.update(bestScore=None,bestAttemptCount=None,bestSubmittedAt=None)
+    ss.append({**sub,'data':sd})
   lib=[]
   for r in sorted(all_rs,key=lambda x:x['created_at'],reverse=True):
    if r['kind'] not in ['library','outline']:continue
@@ -419,7 +477,7 @@ def create_app(config=None):
    if m['role']=='student' and (r['course_id'] not in ids or not d.get('published')):continue
    c=next((c for c in all_cs if c['id']==r['course_id']),None)
    lib.append({**r,'data':d,'course_label':(c['name']+' · '+c['subject']) if c else 'Lớp / môn đã xóa','author_name':next((x['name'] for x in all_ms if x['id']==r['author_id']),'Giáo viên')})
-  return jsonify(me=public_member(dict(m)),members=ms,courses=cs,enrollments=es,records=rs,submissions=ss,library=lib,rosters=[{**r,'data':json.loads(r['data'])} for r in rows(rosters) if m['role']=='admin' or (m['role']=='teacher' and r['author_id']==m['id'] and r['course_id'] in ids)])
+  return jsonify(me=public_member(dict(m)),removedStudents=removed,members=ms,courses=cs,enrollments=es,records=rs,submissions=ss,library=lib,rosters=[{**r,'data':json.loads(r['data'])} for r in rows(rosters) if m['role']=='admin' or (m['role']=='teacher' and r['author_id']==m['id'] and r['course_id'] in ids)])
  @app.post('/api/student-roster/preview')
  def preview_roster():
   teach(text(request.form.get('courseId')))
@@ -438,20 +496,26 @@ def create_app(config=None):
   return send_file(out,as_attachment=True,download_name='mau-danh-sach-hoc-sinh.xlsx')
  @app.post('/api/school')
  @app.post('/api/exams')
+ @app.post('/api/submissions')
  def action():
-  if request.path=='/api/exams':
+  if request.path in ['/api/exams','/api/submissions']:
    try:p=json.loads(request.form.get('payload','{}'))
    except Exception:fail('Dữ liệu đề không hợp lệ.')
-   if not isinstance(p,dict) or p.get('action')!='record' or p.get('kind')!='assignment':fail('Yêu cầu tạo đề chưa hợp lệ.')
+   if not isinstance(p,dict):fail('Dữ liệu chưa hợp lệ.')
+   if request.path=='/api/exams' and (p.get('action')!='record' or p.get('kind')!='assignment'):fail('Yêu cầu tạo đề chưa hợp lệ.')
+   if request.path=='/api/submissions' and p.get('action')!='submit':fail('Yêu cầu nộp bài chưa hợp lệ.')
   else:p=body()
   a=p.get('action');m=g.member
   if a=='submitRoster':
    cid=text(p.get('courseId'));teach(cid);students=roster_students(p.get('students'))
    g.db.execute(insert(rosters).values(id=uid(),course_id=cid,author_id=m['id'],data=json.dumps(students,ensure_ascii=False),status='pending',created_at=now()))
   elif a in ['approveRoster','rejectRoster']:
-   admin();rid=text(p.get('id'));r=g.db.execute(select(rosters).where(rosters.c.id==rid).with_for_update()).mappings().first()
+   admin();rid=text(p.get('id'));r=one(rosters,rosters.c.id==rid)
    if not r or r['status']!='pending':fail('Danh sách đã được xử lý hoặc không tồn tại.',409)
-   get_course(r['course_id']);credentials=[]
+   get_course(r['course_id']);g.db.execute(select(courses).where(courses.c.id==r['course_id']).with_for_update()).first()
+   r=g.db.execute(select(rosters).where(rosters.c.id==rid).with_for_update()).mappings().first()
+   if not r or r['status']!='pending':fail('Danh sách đã được xử lý hoặc không tồn tại.',409)
+   credentials=[]
    if a=='approveRoster':
     for st in roster_students(json.loads(r['data'])):
      existing=one(members,members.c.username==st['code'])
@@ -463,6 +527,7 @@ def create_app(config=None):
       g.db.execute(insert(members).values(id=mid,username=st['code'],password_hash=password(pw),name=st['name'],email='',role='student',disabled=0))
      where=and_(enrollments.c.course_id==r['course_id'],enrollments.c.member_id==mid)
      if not one(enrollments,where):g.db.execute(insert(enrollments).values(course_id=r['course_id'],member_id=mid))
+     reactivate_removed_student(r['course_id'],mid)
      credentials.append({'name':st['name'],'username':st['code'],'password':pw,'note':note})
    g.db.execute(update(rosters).where(rosters.c.id==rid).values(status='approved' if a=='approveRoster' else 'rejected'))
    return jsonify(ok=True,credentials=credentials)
@@ -491,9 +556,51 @@ def create_app(config=None):
   elif a=='enroll':
    admin();cid=text(p.get('courseId'));get_course(cid);mid=text(p.get('memberId'));x=one(members,and_(members.c.id==mid,members.c.role=='student',members.c.disabled==0))
    if not x:fail('Chọn học sinh đang hoạt động.')
+   g.db.execute(select(courses).where(courses.c.id==cid).with_for_update()).first()
    where=and_(enrollments.c.course_id==cid,enrollments.c.member_id==mid)
-   if p.get('remove'):g.db.execute(delete(enrollments).where(where))
-   elif not one(enrollments,where):g.db.execute(insert(enrollments).values(course_id=cid,member_id=mid))
+   if p.get('remove'):remove_roster_student(cid,mid)
+   else:
+    if not one(enrollments,where):g.db.execute(insert(enrollments).values(course_id=cid,member_id=mid))
+    reactivate_removed_student(cid,mid)
+  elif a=='attendanceBatch':
+   cid=text(p.get('courseId'));teach(cid);g.db.execute(select(courses).where(courses.c.id==cid).with_for_update()).first()
+   day=text(p.get('date'));session=p.get('session');entries=p.get('entries')
+   try:
+    if datetime.strptime(day,'%Y-%m-%d').strftime('%Y-%m-%d')!=day:raise ValueError()
+   except ValueError:fail('Ngày điểm danh chưa hợp lệ.')
+   if session not in ['Sáng','Chiều','Tối'] or not isinstance(entries,list):fail('Buổi hoặc danh sách chưa hợp lệ.')
+   enrolled_ids={row['member_id'] for row in rows(enrollments) if row['course_id']==cid}
+   if not entries or any(not isinstance(row,dict) for row in entries) or len(entries)!=len(enrolled_ids) or {row.get('memberId') for row in entries}!=enrolled_ids:fail('Danh sách lớp đã thay đổi. Tải lại trước khi điểm danh.',409)
+   if any(row.get('status') not in ['Có mặt','Vắng có phép','Vắng không phép','Đi muộn','Học bù'] for row in entries):fail('Chọn trạng thái cho đủ học sinh.')
+   existing=[r for r in rows(records) if r['kind']=='attendance' and r['course_id']==cid and json.loads(r['data']).get('date')==day and json.loads(r['data']).get('session','Sáng')==session and json.loads(r['data']).get('memberId') in enrolled_ids]
+   versions=sorted([{'id':r['id'],'updatedAt':json.loads(r['data']).get('updatedAt','')} for r in existing],key=lambda r:r['id'])
+   expected=p.get('expected',[])
+   if not isinstance(expected,list) or expected!=versions:fail('Điểm danh đã thay đổi ở phiên khác. Tải lại ngày / buổi rồi điểm danh lại.',409)
+   if existing and p.get('replace') is not True:fail('Buổi này đã lưu. Hãy chọn Điểm danh lại.',409)
+   stamp=now()+':'+uid()
+   for entry in entries:
+    d={'memberId':entry['memberId'],'date':day,'session':session,'status':entry['status'],'updatedAt':stamp}
+    matches=[r for r in existing if json.loads(r['data']).get('memberId')==entry['memberId']]
+    if matches:
+     g.db.execute(update(records).where(records.c.id==matches[0]['id']).values(data=json.dumps(d,ensure_ascii=False)))
+     for duplicate in matches[1:]:g.db.execute(delete(records).where(records.c.id==duplicate['id']))
+    else:g.db.execute(insert(records).values(id=uid(),course_id=cid,kind='attendance',author_id=m['id'],data=json.dumps(d,ensure_ascii=False),created_at=now()))
+  elif a=='assignmentSettings':
+   r=one(records,and_(records.c.id==text(p.get('id')),records.c.kind=='assignment'))
+   if not r:fail('Không tìm thấy đề.',404)
+   teach(r['course_id']);g.db.execute(select(courses).where(courses.c.id==r['course_id']).with_for_update()).first()
+   r=g.db.execute(select(records).where(records.c.id==r['id']).with_for_update()).mappings().first();d=json.loads(r['data'])
+   for key in ['allowViewScore','allowViewAnswers']:
+    if key in p:
+     if type(p[key]) is not bool:fail('Cấu hình công bố chưa hợp lệ.')
+     d[key]=p[key]
+   if 'answerGuide' in p:d['answerGuide']=text(p['answerGuide'],30000,False)
+   if 'codePolicy' in p:
+    policy=p['codePolicy'];fixed=p.get('fixedExamCode','')
+    if policy not in ['random','fixed'] or (policy=='fixed' and fixed not in [v['code'] for v in d.get('variants',[])]):fail('Chọn mã đề hợp lệ.')
+    if (policy!=d.get('codePolicy','random') or (policy=='fixed' and fixed!=d.get('fixedExamCode'))) and one(submissions,submissions.c.assignment_id==r['id']):fail('Đã có học sinh nộp bài. Không thể đổi cách gán mã đề.',409)
+    d.update(codePolicy=policy,fixedExamCode=fixed if policy=='fixed' else '')
+   g.db.execute(update(records).where(records.c.id==r['id']).values(data=json.dumps(d,ensure_ascii=False)))
   elif a=='record':
    cid=text(p.get('courseId'));kind=p.get('kind');d=p.get('data')
    if kind not in ['assignment','lesson','schedule','attendance','grade','message'] or not isinstance(d,dict):fail('Dữ liệu chưa hợp lệ.')
@@ -504,14 +611,29 @@ def create_app(config=None):
    if d.get('url') and not re.match(r'^https?://',str(d['url']),re.I):fail('Liên kết không hợp lệ.')
    if kind=='assignment':
     validate_exam_data(d);d['subject']=get_course(cid)['subject']
+    for key in ['closedAt','closedBy','resources','answerGuide','codePolicy','fixedExamCode']:d.pop(key,None)
+    for key,default in [('allowViewScore',True),('allowViewAnswers',False)]:
+     if type(d.get(key,default)) is not bool:fail('Cấu hình công bố chưa hợp lệ.')
    if kind=='schedule':parse_date(d.get('at'));d['room']=text(d.get('room'))
    if kind in ['grade','attendance'] or (kind=='message' and m['role']!='student' and d.get('memberId')!='all'):
     mid=text(d.get('memberId'))
     if not one(enrollments,and_(enrollments.c.course_id==cid,enrollments.c.member_id==mid)):fail('Học sinh không thuộc lớp / môn này.')
-   if kind=='grade' and (type(d.get('score')) not in [int,float] or not 0<=d['score']<=10):fail('Điểm từ 0 đến 10.')
+   if kind=='grade':
+    if type(d.get('score')) not in [int,float] or not math.isfinite(d['score']) or not 0<=d['score']<=10:fail('Điểm từ 0 đến 10.')
+    if d.get('date'):
+     try:
+      if datetime.strptime(d['date'],'%Y-%m-%d').strftime('%Y-%m-%d')!=d['date']:raise ValueError()
+     except (ValueError,TypeError):fail('Ngày nhập điểm chưa hợp lệ.')
    if kind=='attendance':
+    g.db.execute(select(courses).where(courses.c.id==cid).with_for_update()).first()
+    d['updatedAt']=now()+':'+uid()
+    d['session']=d.get('session','Sáng')
+    if d['session'] not in ['Sáng','Chiều','Tối']:fail('Buổi chưa hợp lệ.')
+    try:
+     if datetime.strptime(d.get('date',''),'%Y-%m-%d').strftime('%Y-%m-%d')!=d.get('date'):raise ValueError()
+    except (ValueError,TypeError):fail('Ngày điểm danh chưa hợp lệ.')
     if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',str(d.get('date'))) or d.get('status') not in ['Có mặt','Vắng có phép','Vắng không phép','Đi muộn','Học bù']:fail('Điểm danh chưa hợp lệ.')
-    prev=next((r for r in rows(records) if r['course_id']==cid and r['kind']=='attendance' and json.loads(r['data']).get('memberId')==d['memberId'] and json.loads(r['data']).get('date')==d['date']),None)
+    prev=next((r for r in rows(records) if r['course_id']==cid and r['kind']=='attendance' and json.loads(r['data']).get('memberId')==d['memberId'] and json.loads(r['data']).get('date')==d['date'] and json.loads(r['data']).get('session','Sáng')==d['session']),None)
     if prev:g.db.execute(update(records).where(records.c.id==prev['id']).values(data=json.dumps(d,ensure_ascii=False)));return jsonify(ok=True)
    if kind=='message':d['read']=False
    rid=uid();file_data=None
@@ -541,34 +663,71 @@ def create_app(config=None):
    if m['role']!='student':fail('Chỉ học sinh được nộp bài.',403)
    r=one(records,and_(records.c.id==text(p.get('assignmentId')),records.c.kind=='assignment'))
    if not r:fail('Không tìm thấy bài tập.',404)
+   read(r['course_id']);g.db.execute(select(courses).where(courses.c.id==r['course_id']).with_for_update()).first()
+   r=g.db.execute(select(records).where(records.c.id==r['id']).with_for_update()).mappings().first()
    read(r['course_id']);d=assigned_exam(json.loads(r['data']),r['id'],m['id'])
+   if p.get('examCode') is not None and p['examCode']!=d.get('examCode',''):fail('Mã đề đã thay đổi. Mở lại đề trước khi làm bài.',409)
+   if d.get('closedAt'):fail('Đề đã đóng, không nhận thêm bài nộp.',409)
    if d.get('opensAt') and time.time()<parse_date(d['opensAt']):fail('Chưa đến giờ làm bài.')
    previous=g.db.execute(select(submissions).where(and_(submissions.c.assignment_id==r['id'],submissions.c.member_id==m['id'])).with_for_update()).mappings().first()
    prev=json.loads(previous['data']) if previous else None
    if previous and d.get('maxAttempts',1)!=0 and prev.get('attemptCount',1)>=d.get('maxAttempts',1):fail('Đã hết số lần làm bài.',409)
    if d.get('due') and time.time()>parse_date(d['due']):fail('Đã hết hạn nộp.')
+   uploads=request.files.getlist('files') if request.path=='/api/submissions' else []
+   if len(uploads)>5:fail('Tối đa 5 file cho một lần nộp.')
+   if uploads and d['type']=='quiz':fail('Đề trắc nghiệm không nhận file tự luận.')
+   try:uploads=[read_attachment(file) for file in uploads]
+   except ValueError as error:fail(str(error))
+   if uploads:
+    if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246831)'))
+    if stored_file_bytes()+sum(file['size'] for file in uploads)>250*1024*1024:fail('Kho tệp đã đạt 250 MB.')
+   essay_text=text(p.get('text',''),30000,False)
+   if d['type']!='quiz' and not essay_text and not uploads:fail('Cần nhập bài tự luận hoặc đính kèm bài làm.')
    if d['type'] in ['quiz','mixed']:
     ans=p.get('answers');qs=d['questions']
     if not isinstance(ans,list) or len(ans)!=len(qs):fail('Cần trả lời đầy đủ các câu hỏi.')
     earned=sum(auto_question_score(q,ans[i],d.get('tfScoring','progressive'),bool(d.get('composed'))) for i,q in enumerate(qs))
     score=round(earned if d.get('composed') else earned/len(qs)*10,2)
     data={'answers':ans,'score':score,'feedback':''}
-    if d['type']=='mixed':data.update(text=text(p.get('text'),30000),quizScore=data['score'],score=None)
-   else:data={'text':text(p.get('text'),30000),'score':None,'feedback':''}
+    if d['type']=='mixed':data.update(text=essay_text,quizScore=data['score'],score=None)
+   else:data={'text':essay_text,'score':None,'feedback':''}
    if d.get('examCode'):data['examCode']=d['examCode']
    data['attemptCount']=(prev.get('attemptCount',1) if prev else 0)+1
+   sid=previous['id'] if previous else uid();file_values=[];data['attachments']=[]
+   for file in uploads:
+    fid=uid();file_values.append(dict(id=fid,submission_id=sid,attempt_count=data['attemptCount'],**file))
+    data['attachments'].append({**{k:file[k] for k in ['name','mime','size']},'url':'/api/submissions/'+sid+'/files/'+fid})
    if previous:
     history=prev.get('history',[])
-    history.append({k:v for k,v in prev.items() if k!='history'}|{'submittedAt':previous['created_at']})
+    history.append({k:v for k,v in prev.items() if k not in ['history','attemptScores','bestAttempt','bestScore','bestAttemptCount','bestSubmittedAt']}|{'submittedAt':previous['created_at']})
     data['history']=history[-20:]
+    data['attemptScores']=with_best_result(prev,previous['created_at'])['attemptScores']
+    data['bestAttempt']=prev.get('bestAttempt')
+    with_best_result(data,now())
     g.db.execute(update(submissions).where(submissions.c.id==previous['id']).values(data=json.dumps(data,ensure_ascii=False),created_at=now()))
-   else:g.db.execute(insert(submissions).values(id=uid(),assignment_id=r['id'],member_id=m['id'],data=json.dumps(data,ensure_ascii=False),created_at=now()))
+   else:
+    with_best_result(data,now());g.db.execute(insert(submissions).values(id=sid,assignment_id=r['id'],member_id=m['id'],data=json.dumps(data,ensure_ascii=False),created_at=now()))
+   for file in file_values:g.db.execute(insert(submission_files).values(**file))
   elif a=='grade':
    sub=one(submissions,submissions.c.id==text(p.get('id')))
    if not sub:fail('Không tìm thấy bài nộp.',404)
    r=one(records,records.c.id==sub['assignment_id']);teach(r['course_id']);score=p.get('score')
-   if type(score) not in [int,float] or not 0<=score<=10:fail('Điểm từ 0 đến 10.')
-   d=json.loads(sub['data']);d.update(score=score,feedback=text(p.get('feedback',''),4000,False));g.db.execute(update(submissions).where(submissions.c.id==sub['id']).values(data=json.dumps(d,ensure_ascii=False)))
+   if type(score) not in [int,float] or not math.isfinite(score) or not 0<=score<=10:fail('Điểm từ 0 đến 10.')
+   g.db.execute(select(courses).where(courses.c.id==r['course_id']).with_for_update()).first()
+   if not one(enrollments,and_(enrollments.c.course_id==r['course_id'],enrollments.c.member_id==sub['member_id'])):fail('Học sinh đã được xóa khỏi lớp. Khôi phục trước khi chấm.',409)
+   sub=g.db.execute(select(submissions).where(submissions.c.id==sub['id']).with_for_update()).mappings().first();d=json.loads(sub['data'])
+   try:d=grade_attempt(d,sub['created_at'],p.get('attemptCount',d.get('attemptCount',1)),score,text(p.get('feedback',''),4000,False),now(),m['id'])
+   except ValueError as error:fail(str(error))
+   g.db.execute(update(submissions).where(submissions.c.id==sub['id']).values(data=json.dumps(d,ensure_ascii=False)))
+  elif a=='closeAssignment':
+   r=one(records,and_(records.c.id==text(p.get('id')),records.c.kind=='assignment'))
+   if not r:fail('Không tìm thấy đề.',404)
+   teach(r['course_id']);g.db.execute(select(courses).where(courses.c.id==r['course_id']).with_for_update()).first()
+   r=g.db.execute(select(records).where(records.c.id==r['id']).with_for_update()).mappings().first();d=json.loads(r['data'])
+   if not d.get('closedAt'):
+    d.update(closedAt=now(),closedBy=m['id']);g.db.execute(update(records).where(records.c.id==r['id']).values(data=json.dumps(d,ensure_ascii=False)))
+  elif a=='removeRosterStudent':remove_roster_student(text(p.get('courseId')),text(p.get('memberId')))
+  elif a=='restoreRosterStudent':restore_roster_student(text(p.get('id')))
   elif a=='readMessage':
    r=one(records,and_(records.c.id==text(p.get('id')),records.c.kind=='message'))
    if not r:fail('Không tìm thấy trao đổi.')
@@ -583,9 +742,12 @@ def create_app(config=None):
    if r['kind']=='library':
     if m['role']!='admin' and (m['role']!='teacher' or r['author_id']!=m['id']):fail('Chỉ người đăng hoặc quản trị viên được xóa tài liệu.',403)
     g.db.execute(delete(library_files).where(library_files.c.record_id==r['id']))
-   else:teach(r['course_id'])
+   else:
+    teach(r['course_id']);g.db.execute(select(courses).where(courses.c.id==r['course_id']).with_for_update()).first()
    g.db.execute(delete(library_files).where(library_files.c.record_id==r['id']))
    g.db.execute(delete(exam_files).where(exam_files.c.record_id==r['id']))
+   g.db.execute(delete(submission_files).where(submission_files.c.submission_id.in_(select(submissions.c.id).where(submissions.c.assignment_id==r['id']))))
+   g.db.execute(delete(exam_resources).where(exam_resources.c.record_id==r['id']))
    g.db.execute(delete(submissions).where(submissions.c.assignment_id==r['id']));g.db.execute(delete(records).where(records.c.id==r['id']))
   else:fail('Thao tác chưa hợp lệ.')
   return jsonify(ok=True)
@@ -629,6 +791,45 @@ def create_app(config=None):
   f=one(library_files,library_files.c.record_id==rid)
   if not f:fail('Không tìm thấy tệp.',404)
   return send_file(io.BytesIO(f['content']),mimetype=f['mime'],download_name=f['name'],as_attachment=True,max_age=0)
+ @app.get('/api/submissions/<sid>/files/<fid>')
+ def submission_attachment(sid,fid):
+  require_member();sub=one(submissions,submissions.c.id==sid)
+  if not sub:fail('Không tìm thấy bài nộp.',404)
+  r=one(records,records.c.id==sub['assignment_id']);c=read(r['course_id'])
+  if not may_teach(g.member,c) and sub['member_id']!=g.member['id']:fail('Bạn không được xem bài nộp này.',403)
+  if not one(enrollments,and_(enrollments.c.course_id==r['course_id'],enrollments.c.member_id==sub['member_id'])):fail('Học sinh đã rút khỏi lớp.',403)
+  file=one(submission_files,and_(submission_files.c.id==fid,submission_files.c.submission_id==sid))
+  if not file:fail('Không tìm thấy file.',404)
+  return send_file(io.BytesIO(file['content']),mimetype=file['mime'],download_name=file['name'],as_attachment=not(request.args.get('preview')=='1' and (file['mime']=='application/pdf' or file['mime'].startswith('image/'))),max_age=0)
+ @app.post('/api/exams/<rid>/resources')
+ def upload_exam_resource(rid):
+  r=one(records,and_(records.c.id==rid,records.c.kind=='assignment'))
+  if not r:fail('Không tìm thấy đề.',404)
+  teach(r['course_id']);kind=request.form.get('kind')
+  if kind not in ['answer','solution']:fail('Loại tài liệu chưa hợp lệ.')
+  source=request.files.get('file')
+  if source and Path(source.filename or '').suffix.lower()=='.docx':file=exam_upload(source)
+  else:
+   try:file=read_attachment(source)
+   except ValueError as error:fail(str(error))
+  g.db.execute(select(courses).where(courses.c.id==r['course_id']).with_for_update()).first()
+  r=g.db.execute(select(records).where(records.c.id==rid).with_for_update()).mappings().first();d=json.loads(r['data'])
+  if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246831)'))
+  old=one(exam_resources,and_(exam_resources.c.record_id==rid,exam_resources.c.kind==kind))
+  if stored_file_bytes()-(old['size'] if old else 0)+file['size']>250*1024*1024:fail('Kho tệp đã đạt 250 MB.')
+  g.db.execute(delete(exam_resources).where(and_(exam_resources.c.record_id==rid,exam_resources.c.kind==kind)))
+  g.db.execute(insert(exam_resources).values(id=uid(),record_id=rid,kind=kind,**{k:file[k] for k in ['name','mime','size','content']}))
+  d.setdefault('resources',{})[kind]={**{k:file[k] for k in ['name','mime','size']},'url':'/api/exams/'+rid+'/resources/'+kind}
+  g.db.execute(update(records).where(records.c.id==rid).values(data=json.dumps(d,ensure_ascii=False)));return jsonify(ok=True)
+ @app.get('/api/exams/<rid>/resources/<kind>')
+ def download_exam_resource(rid,kind):
+  require_member();r=one(records,and_(records.c.id==rid,records.c.kind=='assignment'))
+  if not r:fail('Không tìm thấy đề.',404)
+  c=read(r['course_id']);d=json.loads(r['data'])
+  if not may_teach(g.member,c) and (not d.get('allowViewAnswers',False) or not one(submissions,and_(submissions.c.assignment_id==rid,submissions.c.member_id==g.member['id']))):fail('Đáp án chưa được công bố cho bạn.',403)
+  file=one(exam_resources,and_(exam_resources.c.record_id==rid,exam_resources.c.kind==kind))
+  if not file:fail('Không tìm thấy tài liệu.',404)
+  return send_file(io.BytesIO(file['content']),mimetype=file['mime'],download_name=file['name'],as_attachment=True,max_age=0)
  @app.get('/api/exams/<rid>/files/<code>')
  def variant_file(rid,code):
   require_member();r=one(records,and_(records.c.id==rid,records.c.kind=='assignment'))

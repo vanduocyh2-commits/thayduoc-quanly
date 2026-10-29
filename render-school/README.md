@@ -72,7 +72,7 @@ Kiểm tra: `node --test test_exam_plan.mjs`, `python -m pytest -q`, `npm run bu
 
 Có thể nhập một JSON câu hỏi theo mẫu thay vì tệp mã đề. JSON đáp án gốc không được công bố cho học sinh. Với đề PDF/Word có sẵn, giáo viên có thể nhập tay đáp án từng mã hoặc tải trực tiếp Excel TN Maker `.xlsx`: ô đầu `Câu\Mã Đề`, các cột tiếp theo là mã đề 101, 102…; ba phần lần lượt A–D, đúng/sai `ĐĐSS`, trả lời ngắn, đánh số lại từ 1 ở mỗi phần. Nút tải mẫu dùng bố cục TN Maker 12/4/6 câu, 4 mã đề; nội dung trong mẫu chỉ để minh họa. Tự nhận số câu, giữ điểm/câu đã chọn; mặc định 0,25 / 1 / 0,5 tương ứng tổng 10 điểm, không có tự luận. Kiểm tra cấu trúc và điểm trước khi giao. Giữ dấu phẩy thập phân và mã đề dạng chuỗi. File có thêm mã chưa tải đề sẽ bỏ qua các mã đó, nhưng thiếu đáp án của mã đã tải thì báo lỗi. Vẫn nhận mẫu dạng dòng cũ (`Ma de`, `Dang`, `Cau`, `Dap an`); mã dạng `quiz`, `truefalse`, `short`, số câu bắt đầu từ 1 trong từng dạng. JSON đáp án là danh sách dòng `{code,type,number,answer}`. Khi bật tự chấm, cấu trúc phải đủ 10 điểm; tự luận chờ giáo viên chấm. PDF/Word không được tự suy ra nội dung câu hỏi hay ma trận.
 
-Lịch giao bài có giờ bắt đầu, hạn nộp; số lần làm 1–100 hoặc 0 không giới hạn. Máy chủ kiểm tra thời gian, quyền tải đúng mã đề và số lần nộp. Điểm hiển thị là lần nộp mới nhất; giữ tối đa 20 lần nộp trước trong lịch sử để giáo viên xem. Bài cũ mặc định một lần làm. Thời lượng trên đề vẫn là thông tin dự kiến, không phải bộ đếm tự nộp.
+Lịch giao bài có giờ bắt đầu, hạn nộp; số lần làm 1–100 hoặc 0 không giới hạn. Máy chủ kiểm tra thời gian, quyền tải đúng mã đề và số lần nộp. Bảng điểm hiển thị điểm cao nhất của từng bài thi; giữ sổ điểm tổng kết mọi lần làm, nội dung 20 lần trước gần nhất và bài có điểm cao nhất để giáo viên xem. Bài cũ mặc định một lần làm. Thời lượng trên đề vẫn là thông tin dự kiến, không phải bộ đếm tự nộp.
 
 Thêm kiểm tra: `node --test test_upload_exam.mjs`; kiểm tra máy chủ gồm đề cương nháp/công bố, Word/Excel, các mã tệp, giới hạn nộp và lịch mở bài.
 
@@ -93,3 +93,18 @@ Không gửi đề cho dịch vụ chuyển đổi bên ngoài. Tệp tạm/prof
 Kiểm tra thêm: `python -m pytest -q test_pdf_conversion.py`; kiểm thử chuyển thật chạy khi có LibreOffice trong PATH. Dockerfile cài bộ chuyển và các phông Liberation, DejaVu, Noto, Carlito, Caladea và OpenSymbol. Kiểm tra Docker image bằng `docker build -t school-pdf render-school` ở gốc kho; môi trường phát triển cần có Docker để chạy bước này.
 
 Docker build thử chuyển một file Word bằng chính LibreOffice trong image dưới tài khoản school trước khi cho phép triển khai; lỗi chuyển đổi sẽ chặn build, giữ bản đang chạy.
+
+
+## Bảng điểm, làm bài và điểm danh theo ngày / buổi
+
+Bảng điểm dùng học sinh đang ghi danh trong từng lớp / môn, bao gồm học sinh từ danh sách Excel đã được quản trị viên duyệt. Mỗi bài thi là một cột riêng, tiêu đề kèm ngày mở đề (hoặc ngày giao nếu không có giờ mở). Các điểm nhập tay cùng tiêu đề và ngày được gom thành một cột; lần nhập mới nhất của mỗi học sinh là bản sửa. Trung bình cộng các cột có điểm, kể cả 0; chưa thi, chờ chấm hoặc chưa công bố không tính. Mỗi bài lấy điểm cao nhất qua các lần làm; chấm lại một lần cũ sẽ tính lại điểm cao nhất. Đóng đề ngăn nhận thêm bài, vẫn cho giáo viên chấm bài đã nộp.
+
+Xóa học sinh khỏi bảng điểm hoặc danh sách lớp sẽ rút ghi danh và bỏ dòng tương ứng trong các danh sách tải lên của lớp / môn. Không xóa tài khoản, các lớp khác hoặc lịch sử điểm / bài nộp. Mục Học sinh đã xóa trong Bảng điểm có nút Khôi phục để phục hồi ghi danh và dòng tải lên. Học sinh đã rút lớp không truy cập được đề / bài nộp của lớp đó.
+
+Khi làm bài, thanh bên được thu lại để đề chiếm tối đa chiều rộng; máy tính chia đề 3 phần, phiếu trả lời 1 phần; màn hình nhỏ xếp đề trên, trả lời dưới. Đề PDF hiển thị trực tiếp; đề soạn có nội dung và phương án ở khung trái. Phiếu trả lời theo đúng số câu, dạng A–D, đúng/sai và trả lời ngắn; đề tải lên đánh số lại trong từng dạng tương ứng TN Maker. Tự luận được nhập nội dung hoặc gửi tối đa 5 tệp / lần, mỗi tệp 5 MB (PDF, DOCX, XLSX, TXT, MD, PNG, JPG, WebP). Nút chụp ảnh dùng camera trên thiết bị hỗ trợ. Tệp được giữ theo từng lần nộp, chỉ học sinh sở hữu và giáo viên phụ trách / quản trị viên xem được, tính chung hạn mức kho 250 MB.
+
+Trong từng bài thi, giáo viên mở Đáp án, hướng dẫn và cấu hình cho học sinh: tải tài liệu đáp án / hướng dẫn, viết lời giải, bật hoặc tắt xem điểm, công bố đáp án sau khi học sinh đã nộp. Đáp án tự chấm vẫn lấy từ cấu hình khi tạo đề / nhập TN Maker, còn tệp đáp án tải ở đây là tài liệu để học sinh đọc. Mặc định giữ cách cũ là hiển thị điểm, chưa công bố đáp án. Khi ẩn điểm, API cũng ẩn điểm, nhận xét và điểm cao nhất của mọi lần làm. Tài liệu đáp án Word được chuyển PDF. Chọn ngẫu nhiên mã đề cho từng học sinh (giữ qua các lần làm) hoặc gán một mã cho cả lớp; cách gán được khóa khi có bài nộp. Giao các mã khác nhau cho các lớp bằng các bài giao riêng.
+
+Điểm danh chọn lớp / môn, ngày và buổi Sáng / Chiều / Tối cùng hàng. Nút Điểm danh mở danh sách học sinh hiện tại; chọn trạng thái hoặc đánh dấu tất cả có mặt, rồi lưu cả buổi. Chọn ngày / buổi đã lưu để xem trạng thái, dùng nút Điểm danh lại bên cạnh để sửa. Các ngày / buổi đã lưu có nút truy cập nhanh. Không ghi đè nếu phiên khác đã sửa hoặc danh sách lớp đã đổi khi đang nhập. Điểm danh cũ không ghi buổi được xem là buổi Sáng.
+
+Kiểm tra: `python -m pytest -q`, `node --test test_*.mjs`, `npm run build`. Bảng mới được tạo bằng cơ chế khởi tạo an toàn hiện có, không xóa dữ liệu cũ.
