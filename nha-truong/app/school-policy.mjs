@@ -1,0 +1,4 @@
+export function mayTeach(member,course){return !member.disabled&&(member.role==='admin'||(member.role==='teacher'&&course.teacher_id===member.id))}
+export function mayRead(member,course,enrollments){return mayTeach(member,course)||(!member.disabled&&member.role==='student'&&enrollments.some(e=>e.course_id===course.id&&e.member_id===member.id))}
+export function safeAssignment(record,member,course){const d=JSON.parse(record.data);if(!mayTeach(member,course)&&record.kind==='assignment'){delete d.answerNotes;d.questions=d.questions?.map(({correct,...q})=>q)}return {...record,data:d}}
+export function quizScore(questions,answers){if(!questions.length||questions.length!==answers.length||answers.some(a=>!Number.isInteger(a)||a<0||a>3))throw Error('Trả lời đầy đủ các câu hỏi.');return Math.round(questions.filter((q,i)=>q.correct===answers[i]).length/questions.length*100)/10}
