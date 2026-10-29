@@ -316,7 +316,8 @@ def test_independent_outlines_drafts_export_and_permissions(client,app):
  assert action(teacher,dict(action='deleteRecord',id=rid)).status_code==200
  assert student.get('/api/outlines/'+rid+'/word').status_code==404
 
-def test_external_word_text_and_multiple_codes(client,app):
+def test_external_word_text_and_multiple_codes(client,app,monkeypatch):
+ monkeypatch.setattr('server.convert_docx_to_pdf',lambda raw:b'%PDF-1.4\nconverted\n%%EOF')
  import io,json,copy
  from docx import Document
  from server import exam_files
@@ -326,7 +327,7 @@ def test_external_word_text_and_multiple_codes(client,app):
  assert inspect(b'hello','x.exe').status_code==400
  assert inspect(b'\xff','x.txt').status_code==400
  doc=Document();doc.add_paragraph('Đề Ngữ văn');out=io.BytesIO();doc.save(out);word=out.getvalue()
- r=inspect(word,'de_102.docx');assert r.status_code==200 and 'Đề Ngữ văn' in r.json['preview']
+ r=inspect(word,'de_102.docx');assert r.status_code==200 and r.json['mime']=='application/pdf' and r.json['name']=='de_102.pdf' and not r.json['preview']
  q=dict(type='quiz',text='Câu 1 theo tệp',points=10,topic='Nội dung',level='Nhận biết',outcome='Làm bài',answers=['A','B','C','D'],correct=0)
  q2={**q,'correct':1};d=dict(title='Nhiều mã đề',body='Làm bài',type='quiz',composed=True,source='uploaded',questions=[q],essays=[],variants=[dict(code='101',questions=[q],essays=[]),dict(code='102',questions=[q2],essays=[])],maxAttempts=2)
  files={'payload':json.dumps(dict(action='record',kind='assignment',courseId=cid,data=d)),'file_101':(io.BytesIO(b'%PDF-1.4\nexample'),'de101.pdf'),'file_102':(io.BytesIO(word),'de102.docx')}
@@ -389,3 +390,42 @@ def test_tn_maker_upload_and_download_template(client,app):
  assert 'tn-maker.xlsx' in r.headers['Content-Disposition']
  wb=load_workbook(io.BytesIO(r.data));assert wb.active.cell(1,1).value=='Câu\\Mã Đề';assert wb.active.max_row==23
  r=upload(teacher,r.data);assert r.status_code==200 and len(r.json['rows'])==88
+
+def test_word_conversion_endpoint_and_storage(client,app,monkeypatch):
+ import io,json
+ from test_pdf_conversion import word_bytes
+ from server import exam_files
+ from pdf_conversion import ConversionError
+ cid,cs=upload_test_accounts(client,app);teacher=cs['teacher'];student=cs['student']
+ pdf=b'%PDF-1.4\nconverted exam\n%%EOF';calls=[]
+ def convert(raw):calls.append(raw);return pdf
+ monkeypatch.setattr('server.convert_docx_to_pdf',convert)
+ def convert_request(c,raw,name='de_101.docx'):
+  return c.post('/api/exams/convert',data={'courseId':cid,'file':(io.BytesIO(raw),name)},headers={'Origin':'http://localhost','X-CSRF-Token':token(c)})
+ raw=word_bytes();r=convert_request(teacher,raw)
+ assert r.status_code==200 and r.mimetype=='application/pdf' and r.data==pdf
+ assert 'de_101.pdf' in r.headers['Content-Disposition'] and r.headers['Cache-Control']=='no-store'
+ assert convert_request(student,raw).status_code==403 and len(calls)==1
+ assert convert_request(teacher,b'not docx').status_code==400 and len(calls)==1
+ assert convert_request(teacher,pdf,'de.pdf').status_code==400
+ d=dict(title='Word tự chuyển PDF',body='Làm theo đề PDF',type='essay',questions=[],essays=[],source='uploaded',variants=[dict(code='101',questions=[],essays=[])])
+ def save():return teacher.post('/api/exams',data={'payload':json.dumps(dict(action='record',kind='assignment',courseId=cid,data=d)),'file_101':(io.BytesIO(raw),'de_101.docx')},headers={'Origin':'http://localhost','X-CSRF-Token':token(teacher)})
+ assert save().status_code==200
+ r=state(student)['records'][0];f=r['data']['file'];assert f['mime']=='application/pdf' and f['name']=='de_101.pdf'
+ download=student.get(f['url']+'?preview=1');assert download.data==pdf and 'inline' in download.headers['Content-Disposition']
+ with app.extensions['school_engine'].connect() as db:
+  f=db.execute(select(exam_files)).mappings().first();assert f['content']==pdf and f['mime']=='application/pdf'
+ def broken(raw):raise ConversionError('Không chuyển được Word sang PDF.')
+ monkeypatch.setattr('server.convert_docx_to_pdf',broken)
+ assert save().status_code==503 and len(state(teacher)['records'])==1
+
+def test_word_external_images_are_not_fetched(client,app,monkeypatch):
+ import io
+ from docx import Document
+ cid,cs=upload_test_accounts(client,app);teacher=cs['teacher'];calls=[]
+ monkeypatch.setattr('server.convert_docx_to_pdf',lambda raw:calls.append(raw))
+ doc=Document();doc.add_paragraph('Đề có hình liên kết ngoài')
+ doc.part.relate_to('https://example.com/image.png','http://schemas.openxmlformats.org/officeDocument/2006/relationships/image',is_external=True)
+ out=io.BytesIO();doc.save(out)
+ r=teacher.post('/api/exams/convert',data={'courseId':cid,'file':(io.BytesIO(out.getvalue()),'de101.docx')},headers={'Origin':'http://localhost','X-CSRF-Token':token(teacher)})
+ assert r.status_code==400 and 'liên kết ngoài' in r.json['error'] and calls==[]
