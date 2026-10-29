@@ -1,5 +1,6 @@
 """Independent school portal for Render. No ChatGPT or Cloudflare dependency."""
-import os,json,re,hmac,secrets,hashlib,time,io,unicodedata,zipfile
+import os,json,re,hmac,secrets,hashlib,time,io,unicodedata,zipfile,math
+from collections import Counter
 from pathlib import Path
 from datetime import datetime,timezone
 from functools import wraps
@@ -31,6 +32,95 @@ def fail(message,status=400):raise AppError(message,status)
 def text(v,maxlen=200,required=True):
  if not isinstance(v,str) or len(v)>maxlen or (required and not v.strip()):fail('Nội dung chưa hợp lệ.')
  return v.strip()
+def normalized_short(value,ignore_case=False):
+ value=' '.join(value.strip().split())
+ if re.fullmatch(r'[+-]?(?:[0-9]+(?:[.,][0-9]+)?|[.,][0-9]+)(?:[eE][+-]?[0-9]+)?',value):value=value.replace(',', '.')
+ return value.casefold() if ignore_case else value
+def validate_auto_question(q):
+ if not isinstance(q,dict):fail('Câu hỏi chưa hợp lệ.')
+ text(q.get('text'),2000)
+ kind=q.get('type','quiz')
+ if kind not in ['quiz','truefalse','short']:fail('Dạng câu hỏi chưa hợp lệ.')
+ if kind in ['quiz','truefalse']:
+  if not isinstance(q.get('answers'),list) or len(q['answers'])!=4:fail('Cần đủ 4 phương án / ý.')
+  for answer in q['answers']:text(answer,1000)
+ if kind=='quiz' and (type(q.get('correct')) is not int or not 0<=q['correct']<=3):fail('Chọn đáp án A–D.')
+ if kind=='truefalse' and (not isinstance(q.get('correct'),list) or len(q['correct'])!=4 or any(type(v) is not bool for v in q['correct'])):fail('Cần đáp án Đúng / Sai cho đủ 4 ý.')
+ if kind=='short':
+  text(q.get('correct'),200)
+  if type(q.get('ignoreCase',False)) is not bool:fail('Cấu hình trả lời ngắn không hợp lệ.')
+def auto_question_score(q,answer,mode,weighted):
+ kind=q.get('type','quiz');points=q.get('points',0) if weighted else 1
+ if kind=='truefalse':
+  if not isinstance(answer,list) or len(answer)!=4 or any(type(v) is not bool for v in answer):fail('Cần trả lời đủ 4 ý Đúng / Sai.')
+  right=sum(a==b for a,b in zip(answer,q['correct']))
+  return points*(right/4 if mode=='equal' else [0,.1,.25,.5,1][right])
+ if kind=='short':
+  value=text(answer,200)
+  return points if normalized_short(value,q.get('ignoreCase',False))==normalized_short(q['correct'],q.get('ignoreCase',False)) else 0
+ if type(answer) is not int or not 0<=answer<=3:fail('Cần chọn đáp án A–D.')
+ return points if answer==q['correct'] else 0
+
+def assigned_exam(data,rid,mid):
+ variants=data.get('variants',[])
+ if not variants:return data
+ index=int(hashlib.sha256((rid+':'+mid).encode()).hexdigest(),16)%len(variants)
+ v=variants[index]
+ return {**data,'questions':v['questions'],'essays':v['essays'],'examCode':v['code']}
+def question_signature(q):
+ kind=q.get('type','quiz')
+ d={k:q.get(k) for k in ['text','points','topic','level','outcome']};d['type']=kind
+ if kind=='quiz':d.update(answers=sorted(q['answers']),correct=q['answers'][q['correct']])
+ elif kind=='truefalse':d.update(answers=q['answers'],correct=q['correct'])
+ elif kind=='short':d.update(correct=q['correct'],ignoreCase=q.get('ignoreCase',False))
+ return json.dumps(d,sort_keys=True,ensure_ascii=False)
+def validate_variants(data):
+ variants=data.get('variants',[])
+ if not isinstance(variants,list) or len(variants)>10:fail('Tối đa 10 mã đề.')
+ base=Counter(question_signature(q) for q in data['questions']+data.get('essays',[]));codes=set()
+ for v in variants:
+  if not isinstance(v,dict) or not isinstance(v.get('code'),str) or not re.fullmatch(r'\d{3,4}',v['code']) or v['code'] in codes:fail('Mã đề phải khác nhau, gồm 3–4 chữ số.')
+  codes.add(v['code'])
+  if not isinstance(v.get('questions'),list) or not isinstance(v.get('essays'),list) or len(v['questions'])!=len(data['questions']) or len(v['essays'])!=len(data.get('essays',[])):fail('Mã đề phải giữ đủ câu của đề gốc.')
+  for q in v['questions']:validate_auto_question(q)
+  for q in v['essays']:
+   if not isinstance(q,dict) or q.get('type')!='essay':fail('Câu tự luận trong mã đề chưa hợp lệ.')
+  try:valid=Counter(question_signature(q) for q in v['questions']+v['essays'])==base
+  except (TypeError,KeyError,IndexError):valid=False
+  if not valid:fail('Bản đảo phải giữ nguyên nội dung, thang điểm và đáp án đúng của đề gốc.')
+
+def validate_exam_data(d):
+ if d.get('type') not in ['essay','quiz','mixed']:fail('Hình thức chưa hợp lệ.')
+ if d.get('due'):parse_date(d['due'])
+ if d['type'] in ['quiz','mixed']:
+  qs=d.get('questions')
+  if not isinstance(qs,list) or not 1<=len(qs)<=100:fail('Cần từ 1 đến 100 câu hỏi.')
+  for q in qs:validate_auto_question(q)
+ else:d['questions']=[]
+ essays=d.get('essays',[])
+ if not isinstance(essays,list) or len(essays)>100:fail('Tối đa 100 câu tự luận.')
+ for q in essays:
+  if not isinstance(q,dict):fail('Câu tự luận chưa hợp lệ.')
+  text(q.get('text'),2000)
+  q['type']='essay'
+ if d['type']=='mixed' and not essays:fail('Đề kết hợp cần câu tự luận.')
+ if d.get('composed'):
+  all_q=d['questions']+essays
+  if not 1<=len(all_q)<=100:fail('Đề cần từ 1 đến 100 câu hỏi.')
+  for q in all_q:
+   if type(q.get('points')) not in [int,float] or not math.isfinite(q['points']) or not 0<q['points']<=10:fail('Điểm câu hỏi phải lớn hơn 0 và không quá 10.')
+   q['topic']=text(q.get('topic'),200);q['level']=text(q.get('level'),100)
+   q['outcome']=text(q.get('outcome',''),2000,False)
+   if q['level'] not in ['Nhận biết','Thông hiểu','Vận dụng','Vận dụng cao']:fail('Mức độ không hợp lệ.')
+  if abs(sum(q['points'] for q in all_q)-10)>0.001:fail('Tổng điểm đề phải bằng 10.')
+ if d.get('minutes') is not None and (type(d['minutes']) is not int or not 1<=d['minutes']<=300):fail('Thời gian cần từ 1 đến 300 phút.')
+ if d.get('grade') is not None and str(d['grade']) not in [str(i) for i in range(1,13)]:fail('Khối lớp không hợp lệ.')
+ if d.get('tfScoring','progressive') not in ['progressive','equal']:fail('Cách chấm Đúng / Sai không hợp lệ.')
+ d['includeMatrix']=bool(d.get('includeMatrix',False))
+ validate_variants(d)
+ if d.get('subjectCode') is not None and not re.fullmatch(r'\d{2}',str(d['subjectCode'])):fail('Mã môn cần đúng 2 chữ số.')
+ d.pop('file',None)
+
 def password(v):
  if not isinstance(v,str) or not 10<=len(v)<=200:fail('Mật khẩu cần từ 10 đến 200 ký tự.')
  return generate_password_hash(v)
@@ -233,7 +323,9 @@ def create_app(config=None):
    if not may_teach(m,c):
     if r['kind'] in ['attendance','grade','message'] and d.get('memberId') not in [m['id'],'all'] and r['author_id']!=m['id']:continue
     if r['kind']=='assignment':
-     d.pop('answerNotes',None);d['questions']=[{k:v for k,v in q.items() if k!='correct'} for q in d.get('questions',[])]
+     d=assigned_exam(d,r['id'],m['id']);d.pop('variants',None)
+     d.pop('answerNotes',None)
+     for field in ['questions','essays']:d[field]=[{k:v for k,v in q.items() if k not in ['correct','outcome']} for q in d.get(field,[])]
    rs.append({**r,'data':d})
   ss=[]
   for sub in rows(submissions):
@@ -330,32 +422,7 @@ def create_app(config=None):
    if kind in ['lesson','assignment','message']:d['body']=text(d.get('body'),20000 if kind!='message' else 4000)
    if d.get('url') and not re.match(r'^https?://',str(d['url']),re.I):fail('Liên kết không hợp lệ.')
    if kind=='assignment':
-    if d.get('type') not in ['essay','quiz','mixed']:fail('Hình thức chưa hợp lệ.')
-    if d.get('due'):parse_date(d['due'])
-    if d['type'] in ['quiz','mixed']:
-     qs=d.get('questions')
-     if not isinstance(qs,list) or not 1<=len(qs)<=100:fail('Cần từ 1 đến 100 câu hỏi.')
-     for q in qs:
-      if not isinstance(q,dict):fail('Câu hỏi chưa hợp lệ.')
-      text(q.get('text'),2000)
-      if not isinstance(q.get('answers'),list) or len(q['answers'])!=4 or type(q.get('correct')) is not int or not 0<=q['correct']<=3:fail('Cần 4 lựa chọn và đáp án A–D.')
-      for answer in q['answers']:text(answer,1000)
-    else:d['questions']=[]
-    essays=d.get('essays',[])
-    if not isinstance(essays,list) or len(essays)>100:fail('Tối đa 100 câu tự luận.')
-    for q in essays:
-     if not isinstance(q,dict):fail('Câu tự luận chưa hợp lệ.')
-     text(q.get('text'),2000)
-    if d['type']=='mixed' and not essays:fail('Đề kết hợp cần câu tự luận.')
-    if d.get('composed'):
-     all_q=d['questions']+essays
-     if not all_q:fail('Cần ít nhất một câu hỏi.')
-     for q in all_q:
-      if type(q.get('points')) not in [int,float] or not 0<q['points']<=10:fail('Điểm câu hỏi phải lớn hơn 0 và không quá 10.')
-      q['topic']=text(q.get('topic'),200);q['level']=text(q.get('level'),100)
-      if q['level'] not in ['Nhận biết','Thông hiểu','Vận dụng','Vận dụng cao']:fail('Mức độ không hợp lệ.')
-     if abs(sum(q['points'] for q in all_q)-10)>0.001:fail('Tổng điểm đề phải bằng 10.')
-    d.pop('file',None)
+    validate_exam_data(d);d['subject']=get_course(cid)['subject']
    if kind=='schedule':parse_date(d.get('at'));d['room']=text(d.get('room'))
    if kind in ['grade','attendance'] or (kind=='message' and m['role']!='student' and d.get('memberId')!='all'):
     mid=text(d.get('memberId'))
@@ -384,15 +451,17 @@ def create_app(config=None):
    if m['role']!='student':fail('Chỉ học sinh được nộp bài.',403)
    r=one(records,and_(records.c.id==text(p.get('assignmentId')),records.c.kind=='assignment'))
    if not r:fail('Không tìm thấy bài tập.',404)
-   read(r['course_id']);d=json.loads(r['data'])
+   read(r['course_id']);d=assigned_exam(json.loads(r['data']),r['id'],m['id'])
    if d.get('due') and time.time()>parse_date(d['due']):fail('Đã hết hạn nộp.')
    if d['type'] in ['quiz','mixed']:
     ans=p.get('answers');qs=d['questions']
-    if not isinstance(ans,list) or len(ans)!=len(qs) or any(type(v) is not int or not 0<=v<=3 for v in ans):fail('Cần trả lời đầy đủ các câu hỏi.')
-    data={'answers':ans,'score':round(sum(q['correct']==ans[i] for i,q in enumerate(qs))/len(qs)*10,1),'feedback':''}
-    if d.get('composed'):data['score']=round(sum(q['points'] for i,q in enumerate(qs) if q['correct']==ans[i]),2)
+    if not isinstance(ans,list) or len(ans)!=len(qs):fail('Cần trả lời đầy đủ các câu hỏi.')
+    earned=sum(auto_question_score(q,ans[i],d.get('tfScoring','progressive'),bool(d.get('composed'))) for i,q in enumerate(qs))
+    score=round(earned if d.get('composed') else earned/len(qs)*10,2)
+    data={'answers':ans,'score':score,'feedback':''}
     if d['type']=='mixed':data.update(text=text(p.get('text'),30000),quizScore=data['score'],score=None)
    else:data={'text':text(p.get('text'),30000),'score':None,'feedback':''}
+   if d.get('examCode'):data['examCode']=d['examCode']
    g.db.execute(insert(submissions).values(id=uid(),assignment_id=r['id'],member_id=m['id'],data=json.dumps(data,ensure_ascii=False),created_at=now()))
   elif a=='grade':
    sub=one(submissions,submissions.c.id==text(p.get('id')))
@@ -459,6 +528,15 @@ def create_app(config=None):
   f=one(library_files,library_files.c.record_id==rid)
   if not f:fail('Không tìm thấy tệp.',404)
   return send_file(io.BytesIO(f['content']),mimetype=f['mime'],download_name=f['name'],as_attachment=True,max_age=0)
+ @app.post('/api/exams/export')
+ def export_exam():
+  from exam_export import export_pack,outline_doc
+  p=body();c=teach(text(p.get('courseId')));d=p.get('data')
+  if not isinstance(d,dict) or not d.get('composed'):fail('Cần đề soạn trực tiếp để xuất tệp.')
+  d['title']=text(d.get('title'));d['body']=text(d.get('body',''),12000,False)
+  validate_exam_data(d);d['subject']=c['subject']
+  if p.get('format')=='outline':return send_file(io.BytesIO(outline_doc(d)),mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',as_attachment=True,download_name='de-cuong.docx')
+  return send_file(io.BytesIO(export_pack(d)),mimetype='application/zip',as_attachment=True,download_name='bo-de-kiem-tra.zip')
  @app.get('/api/exams/<rid>/file')
  def exam_file(rid):
   require_member();r=one(records,and_(records.c.id==rid,records.c.kind=='assignment'))

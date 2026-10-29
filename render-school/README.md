@@ -45,3 +45,20 @@ Tiện ích giáo viên: đồ thị đa thức bậc tối đa 3 với lưới 
 Vào Lớp & môn học → Thêm / Tải danh sách học sinh. Chọn lớp/môn được phân công, nhập từng học sinh hoặc tải Excel .xlsx (tối đa 500 em/lần, file 6 MB). Nhận diện cột Mã định danh Bộ GD&ĐT / Mã học sinh / SBD và Họ và tên, kể cả bảng điểm có các dòng tiêu đề phía trên và nhiều sheet. Giữ mã dạng chuỗi, không đọc điểm, ngày sinh hay giới tính. Có file mẫu tải xuống, xem trước và báo lỗi theo dòng; file lỗi cần sửa trước khi gửi.
 
 Giáo viên gửi danh sách, quản trị viên duyệt trong cùng mục Lớp & môn học (có số chờ duyệt trên menu). Tài khoản mới dùng mã học sinh làm tên đăng nhập, mật khẩu ngẫu nhiên; chỉ quản trị viên nhận file CSV tài khoản ngay sau lần duyệt. Tài khoản học sinh đang hoạt động có cùng tên/mã được ghi danh thêm, giữ mật khẩu; xung đột tên hoặc vai trò sẽ hủy toàn bộ lần duyệt để kiểm tra. Không xóa học sinh cũ. Danh sách chưa duyệt không tạo tài khoản hoặc ghi danh. Giáo viên chỉ thấy danh sách mình gửi cho lớp/môn còn phụ trách; học sinh không xem được. Bảng school_rosters được tạo bổ sung khi ứng dụng khởi động, không thay đổi dữ liệu cũ.
+
+
+## Soạn đề, ma trận và mã đề
+
+Trong **Bài tập & kiểm tra → Soạn đề**, chọn lớp/môn, khối, thời lượng và tên đề. Môn được lấy từ phân công của lớp, dùng chung cho mọi môn. Thiết lập số câu và điểm/câu cho TN 4 lựa chọn, Đúng/Sai 4 ý, trả lời ngắn và các hàng tự luận. Phân bố NB/TH/VD/VDC cần đủ 100%; nhập tay một hàng sẽ giữ hàng đó khi phân bố lại. Tổng điểm đề thực tế phải bằng 10.
+
+Tạo khung rồi nhập nội dung, chủ đề, yêu cầu cần đạt, đáp án. Công thức Markdown/LaTeX được hiển thị trên web bằng MathML; file Word dùng OMML (Equation) khi chuyển đổi được, công thức không hỗ trợ giữ nguyên LaTeX. Đây không phải đối tượng MathType độc quyền. Có bản in, bản học sinh tương tác, ma trận và đặc tả. Bản học sinh không chứa đáp án hoặc yêu cầu cần đạt riêng của giáo viên.
+
+Có thể tạo 1–10 mã đề: đảo câu trong mỗi dạng và phương án A–D, đồng thời cập nhật đáp án. Ý đúng/sai giữ nguyên thứ tự. Mỗi học sinh nhận một mã cố định do máy chủ chọn; bài nộp giữ mã đề để giáo viên chấm đúng phiên bản. Sửa nội dung câu hỏi sẽ xóa các bản đảo cũ để tạo lại.
+
+Đúng/sai hỗ trợ lũy kế (1/2/3/4 ý đúng nhận 10/25/50/100% điểm câu) hoặc chia đều theo ý. Trả lời ngắn so khớp chuỗi đã bỏ khoảng trắng thừa, chấp nhận dấu phẩy thập phân với đáp án số, mặc định phân biệt chữ hoa/thường; giáo viên có thể bỏ phân biệt cho từng câu. Tự luận chờ giáo viên chấm, phần tự chấm được lưu riêng để nhập tổng điểm /10.
+
+Nút hỗ trợ AI chỉ tạo yêu cầu để sao chép; không gọi dịch vụ AI. Nhập kết quả JSON theo mẫu (file JSON/TXT/MD tối đa 1 MB), kiểm tra lại nội dung và đáp án trước khi giao. Tối đa 100 câu cho một đề.
+
+Tải ZIP trước hoặc sau khi lưu: đề DOCX, đáp án XLSX, ma trận/đặc tả DOCX nếu đã chọn, đề cương DOCX và QR SVG chứa mã môn/mã đề/số câu. QR không chứa đáp án, không tự tích hợp ứng dụng chấm thi bên ngoài. Chỉ giáo viên phụ trách hoặc quản trị viên được xuất. Số câu trong đề Word, web và Excel theo cùng thứ tự chung, tự chấm trước rồi tự luận. Thời lượng là thông tin trên đề; hạn nộp do máy chủ kiểm tra.
+
+Kiểm tra: `node --test test_exam_plan.mjs`, `python -m pytest -q`, `npm run build`.

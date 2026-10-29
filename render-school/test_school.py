@@ -234,3 +234,57 @@ def test_pdf_and_mixed_exam(client,app):
  a=next(r for r in state(teacher)['records'] if r['data']['title']=='Đề PDF')
  assert action(teacher,dict(action='deleteRecord',id=a['id'])).status_code==200
  assert student.get(url).status_code==404
+
+def test_four_types_variants_and_answer_privacy(client,app):
+ import json,copy
+ setup(client)
+ for u,role in [('teacher','teacher'),('student','student')]:action(client,dict(action='member',name=u,username=u,password='Password123!',role=role))
+ ms={m['username']:m['id'] for m in state(client)['members']};action(client,dict(action='course',name='12A',subject='Vật lí',teacherId=ms['teacher']));cid=state(client)['courses'][0]['id'];action(client,dict(action='enroll',courseId=cid,memberId=ms['student']))
+ teacher=app.test_client();student=app.test_client();login(teacher,'teacher');login(student,'student')
+ common=dict(topic='Chuyển động',level='Thông hiểu',outcome='Vận dụng công thức')
+ qs=[dict(common,type='quiz',text='Câu 1',points=2,answers=['A','B','C','D'],correct=1),dict(common,type='truefalse',text='Câu 2',points=2,answers=['a','b','c','d'],correct=[True,False,True,False]),dict(common,type='short',text='Câu 3',points=2,correct='2.5')]
+ es=[dict(common,type='essay',text='Câu 4',points=4)]
+ variant=dict(code='101',questions=copy.deepcopy(qs[::-1]),essays=copy.deepcopy(es));vq=variant['questions'][2];vq.update(answers=['D','C','B','A'],correct=2)
+ d=dict(title='4 dạng',body='Làm bài',type='mixed',composed=True,questions=qs,essays=es,minutes=45,grade='12',tfScoring='progressive',variants=[variant])
+ def save(d):return teacher.post('/api/exams',data={'payload':json.dumps(dict(action='record',kind='assignment',courseId=cid,data=d))},headers={'Origin':'http://localhost','X-CSRF-Token':token(teacher)})
+ assert save(d).status_code==200
+ a=state(student)['records'][0];assert a['data']['examCode']=='101';assert 'variants' not in a['data'];assert 'correct' not in a['data']['questions'][0];assert 'outcome' not in a['data']['essays'][0]
+ assert state(student)['records'][0]['data']['questions']==a['data']['questions']
+ assert action(student,dict(action='submit',assignmentId=a['id'],answers=['2,5',[True,False,False,False],2],text='Bài giải')).status_code==200
+ sub=state(teacher)['submissions'][0];assert sub['data']['examCode']=='101';assert sub['data']['quizScore']==5;assert sub['data']['score'] is None
+ bad=copy.deepcopy(d);bad['variants'][0]['questions'][2]['correct']=0;assert save(bad).status_code==400
+ bad=copy.deepcopy(d);bad['questions'][1]['correct']=[True];assert save(bad).status_code==400
+ bad=copy.deepcopy(d);bad['minutes']=0;assert save(bad).status_code==400
+ bad=copy.deepcopy(d);bad['questions'][0]['points']=float('nan');assert save(bad).status_code==400
+
+def test_truefalse_scoring_and_short_normalization():
+ from server import auto_question_score,AppError
+ q=dict(type='truefalse',points=2,correct=[True,True,True,True])
+ for n,fraction in enumerate([0,.1,.25,.5,1]):
+  answer=[True]*n+[False]*(4-n)
+  assert auto_question_score(q,answer,'progressive',True)==2*fraction
+  assert auto_question_score(q,answer,'equal',True)==n*.5
+ with pytest.raises(AppError):auto_question_score(q,[True],'equal',True)
+ assert auto_question_score(dict(type='short',correct='  2.5 ',points=1),'2,5','equal',True)==1
+ assert auto_question_score(dict(type='short',correct='NaCl',points=1),'NACL','equal',True)==0
+ assert auto_question_score(dict(type='short',correct='NaCl',points=1,ignoreCase=True),'NACL','equal',True)==1
+
+def test_exam_exports_real_word_math_excel_and_permissions(client,app):
+ import io,zipfile
+ from openpyxl import load_workbook
+ setup(client)
+ action(client,dict(action='member',name='GV',username='teacher',password='Password123!',role='teacher'))
+ teacher_id=next(m['id'] for m in state(client)['members'] if m['role']=='teacher');action(client,dict(action='course',name='10A',subject='Toán',teacherId=teacher_id));cid=state(client)['courses'][0]['id']
+ q=dict(type='short',text=r'Tính $\frac{1}{2}$',correct='0,5',points=10,topic='=1+1',level='Nhận biết',outcome='Tính phân số')
+ d=dict(title='Đề phân số',body='Làm bài',composed=True,type='quiz',questions=[q],essays=[],includeMatrix=True,minutes=45,grade='10')
+ r=post(client,'/api/exams/export',dict(courseId=cid,data=d),token(client));assert r.status_code==200
+ with zipfile.ZipFile(io.BytesIO(r.data)) as z:
+  assert set(['de-GOC.docx','dap-an.xlsx','ma-tran-dac-ta-GOC.docx','de-cuong.docx','qr-ma-de-GOC.svg'])<=set(z.namelist())
+  with zipfile.ZipFile(io.BytesIO(z.read('de-GOC.docx'))) as word:
+   xml=word.read('word/document.xml');assert b'<m:oMath' in xml and b'<m:f>' in xml
+   assert b'0,5' not in xml # No answer leaked into the student-facing Word.
+  wb=load_workbook(io.BytesIO(z.read('dap-an.xlsx')));ws=wb.active;assert ws['D2'].value=='=1+1';assert ws['D2'].data_type=='s';assert ws['G2'].value=='0,5'
+ r=post(client,'/api/exams/export',dict(courseId=cid,data=d,format='outline'),token(client));assert r.status_code==200
+ action(client,dict(action='member',name='HS',username='student',password='Password123!',role='student'))
+ student=app.test_client();login(student,'student')
+ assert post(student,'/api/exams/export',dict(courseId=cid,data=d),token(student)).status_code==403
