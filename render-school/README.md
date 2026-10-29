@@ -62,3 +62,16 @@ Nút hỗ trợ AI chỉ tạo yêu cầu để sao chép; không gọi dịch v
 Tải ZIP trước hoặc sau khi lưu: đề DOCX, đáp án XLSX, ma trận/đặc tả DOCX nếu đã chọn, đề cương DOCX và QR SVG chứa mã môn/mã đề/số câu. QR không chứa đáp án, không tự tích hợp ứng dụng chấm thi bên ngoài. Chỉ giáo viên phụ trách hoặc quản trị viên được xuất. Số câu trong đề Word, web và Excel theo cùng thứ tự chung, tự chấm trước rồi tự luận. Thời lượng là thông tin trên đề; hạn nộp do máy chủ kiểm tra.
 
 Kiểm tra: `node --test test_exam_plan.mjs`, `python -m pytest -q`, `npm run build`.
+
+
+## Đề cương độc lập & tải đề có sẵn
+
+**Đề cương ôn tập** có mục riêng cho giáo viên và học sinh. Giáo viên viết theo chủ đề (yêu cầu cần đạt, kiến thức trọng tâm, bài tập), lấy nội dung từ đề đã soạn, xem trước, xuất Word / in PDF, lưu nháp hoặc công bố cho lớp. Học sinh chỉ thấy và tải các đề cương đã công bố trong lớp của mình. Chưa tự tách chủ đề từ tệp PDF/Word.
+
+**Bài tập & kiểm tra → Tải đề từ ngoài lên** theo bốn bước: cấu trúc/cách chấm, tệp mã đề, đáp án, giao bài. Nhận tối đa 10 mã đề PDF/DOCX/TXT/MD, mỗi tệp tối đa 5 MB, tổng 25 MB. Tệp mã đề lưu riêng trong PostgreSQL; kho dùng chung hạn mức 250 MB. Có xem PDF trực tiếp, bản trích văn bản Word/TXT/MD. Word giữ hình ảnh và bố cục trong tệp gốc; bản trích chỉ để kiểm tra văn bản.
+
+Có thể nhập một JSON câu hỏi theo mẫu thay vì tệp mã đề. JSON đáp án gốc không được công bố cho học sinh. Với đề PDF/Word có sẵn, giáo viên có thể nhập tay đáp án từng mã hoặc tải Excel theo mẫu (`Ma de`, `Dang`, `Cau`, `Dap an`); mã dạng `quiz`, `truefalse`, `short`, số câu bắt đầu từ 1 trong từng dạng. JSON đáp án là danh sách dòng `{code,type,number,answer}`. Khi bật tự chấm, cấu trúc phải đủ 10 điểm; tự luận chờ giáo viên chấm. PDF/Word không được tự suy ra nội dung câu hỏi hay ma trận.
+
+Lịch giao bài có giờ bắt đầu, hạn nộp; số lần làm 1–100 hoặc 0 không giới hạn. Máy chủ kiểm tra thời gian, quyền tải đúng mã đề và số lần nộp. Điểm hiển thị là lần nộp mới nhất; giữ tối đa 20 lần nộp trước trong lịch sử để giáo viên xem. Bài cũ mặc định một lần làm. Thời lượng trên đề vẫn là thông tin dự kiến, không phải bộ đếm tự nộp.
+
+Thêm kiểm tra: `node --test test_upload_exam.mjs`; kiểm tra máy chủ gồm đề cương nháp/công bố, Word/Excel, các mã tệp, giới hạn nộp và lịch mở bài.

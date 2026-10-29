@@ -97,3 +97,15 @@ def export_pack(data):
   book=io.BytesIO();wb.save(book);z.writestr('dap-an.xlsx',book.getvalue());z.writestr('de-cuong.docx',outline_doc(data))
   z.writestr('huong-dan.txt','Gói dành cho giáo viên. Không gửi đáp án Excel hoặc bản đặc tả cho học sinh.\nĐề Word dùng công thức Equation của Word khi chuyển đổi được; công thức không hỗ trợ giữ nguyên LaTeX để kiểm tra.\nQR chứa mã môn, mã đề và số câu; không chứa đáp án, không tự kết nối ứng dụng chấm thi khác.\nCâu được đánh số liên tục để đối chiếu đúng giữa đề Word, bài làm trên web và đáp án Excel (phần tự chấm trước, tự luận sau).\n')
  return out.getvalue()
+
+
+def standalone_outline_doc(data):
+ doc=new_doc(data['title']);doc.add_paragraph(f"Môn: {data['subject']} · Khối: {data['grade']}")
+ if data.get('body'):add_content(doc.add_paragraph(),data['body'])
+ for i,section in enumerate(data['sections']):
+  doc.add_heading(f"{i+1}. {section['topic']}",level=1)
+  for key,label in [('objectives','Yêu cầu cần đạt'),('theory','Kiến thức trọng tâm'),('exercises','Bài tập ôn luyện')]:
+   if section.get(key):
+    doc.add_heading(label,level=2)
+    for line in section[key].splitlines():add_content(doc.add_paragraph(),line)
+ return doc_bytes(doc)

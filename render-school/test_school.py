@@ -288,3 +288,71 @@ def test_exam_exports_real_word_math_excel_and_permissions(client,app):
  action(client,dict(action='member',name='HS',username='student',password='Password123!',role='student'))
  student=app.test_client();login(student,'student')
  assert post(student,'/api/exams/export',dict(courseId=cid,data=d),token(student)).status_code==403
+
+def upload_test_accounts(client,app):
+ setup(client)
+ for u,role in [('teacher','teacher'),('other','teacher'),('student','student')]:action(client,dict(action='member',name=u,username=u,password='Password123!',role=role))
+ ms={m['username']:m['id'] for m in state(client)['members']};action(client,dict(action='course',name='12A',subject='Ngữ văn',teacherId=ms['teacher']));cid=state(client)['courses'][0]['id'];action(client,dict(action='enroll',courseId=cid,memberId=ms['student']))
+ clients={u:app.test_client() for u in ['teacher','other','student']}
+ for u,c in clients.items():login(c,u)
+ return cid,clients
+
+def test_independent_outlines_drafts_export_and_permissions(client,app):
+ import io,zipfile
+ cid,cs=upload_test_accounts(client,app);teacher=cs['teacher'];student=cs['student']
+ d=dict(title='Ôn tập giữa kỳ',grade='12',published=False,body='Tự ôn tập',sections=[dict(topic='Chủ đề 1',objectives='Hiểu kiến thức',theory=r'Công thức $x^2$',exercises='Bài 1')])
+ r=post(teacher,'/api/outlines',dict(courseId=cid,data=d),token(teacher));assert r.status_code==200;rid=r.json['id']
+ assert not any(r['kind']=='outline' for r in state(student)['records'])
+ assert student.get('/api/outlines/'+rid+'/word').status_code==403
+ assert post(cs['other'],'/api/outlines',dict(id=rid,courseId=cid,data=d),token(cs['other'])).status_code==403
+ d['published']=True
+ assert post(teacher,'/api/outlines',dict(id=rid,courseId=cid,data=d),token(teacher)).status_code==200
+ a=next(r for r in state(student)['records'] if r['id']==rid);assert a['data']['subject']=='Ngữ văn'
+ word=student.get('/api/outlines/'+rid+'/word');assert word.status_code==200
+ with zipfile.ZipFile(io.BytesIO(word.data)) as z:assert b'<m:oMath' in z.read('word/document.xml')
+ assert post(student,'/api/outlines',dict(courseId=cid,data=d),token(student)).status_code==403
+ assert post(teacher,'/api/outlines/export',dict(courseId=cid,data=d),token(teacher)).status_code==200
+ assert post(teacher,'/api/outlines',dict(courseId=cid,data=[]),token(teacher)).status_code==400
+ assert action(teacher,dict(action='deleteRecord',id=rid)).status_code==200
+ assert student.get('/api/outlines/'+rid+'/word').status_code==404
+
+def test_external_word_text_and_multiple_codes(client,app):
+ import io,json,copy
+ from docx import Document
+ from server import exam_files
+ cid,cs=upload_test_accounts(client,app);teacher=cs['teacher'];student=cs['student']
+ def inspect(raw,name):return teacher.post('/api/exams/inspect',data={'courseId':cid,'file':(io.BytesIO(raw),name)},headers={'Origin':'http://localhost','X-CSRF-Token':token(teacher)})
+ assert inspect(b'not word','x.docx').status_code==400
+ assert inspect(b'hello','x.exe').status_code==400
+ assert inspect(b'\xff','x.txt').status_code==400
+ doc=Document();doc.add_paragraph('Đề Ngữ văn');out=io.BytesIO();doc.save(out);word=out.getvalue()
+ r=inspect(word,'de_102.docx');assert r.status_code==200 and 'Đề Ngữ văn' in r.json['preview']
+ q=dict(type='quiz',text='Câu 1 theo tệp',points=10,topic='Nội dung',level='Nhận biết',outcome='Làm bài',answers=['A','B','C','D'],correct=0)
+ q2={**q,'correct':1};d=dict(title='Nhiều mã đề',body='Làm bài',type='quiz',composed=True,source='uploaded',questions=[q],essays=[],variants=[dict(code='101',questions=[q],essays=[]),dict(code='102',questions=[q2],essays=[])],maxAttempts=2)
+ files={'payload':json.dumps(dict(action='record',kind='assignment',courseId=cid,data=d)),'file_101':(io.BytesIO(b'%PDF-1.4\nexample'),'de101.pdf'),'file_102':(io.BytesIO(word),'de102.docx')}
+ r=teacher.post('/api/exams',data=files,headers={'Origin':'http://localhost','X-CSRF-Token':token(teacher)});assert r.status_code==200
+ a=state(student)['records'][0];code=a['data']['examCode'];url=a['data']['file']['url'];assert code in ['101','102'];assert 'variants' not in a['data'];assert 'correct' not in a['data']['questions'][0]
+ other='102' if code=='101' else '101';assert student.get('/api/exams/'+a['id']+'/files/'+other).status_code==403
+ assert teacher.get('/api/exams/'+a['id']+'/files/'+other).status_code==200
+ r=student.get(url);assert r.status_code==200
+ pdf=teacher.get('/api/exams/'+a['id']+'/files/101?preview=1');assert pdf.status_code==200 and pdf.headers['X-Frame-Options']=='SAMEORIGIN' and 'inline' in pdf.headers['Content-Disposition']
+ for i in range(2):assert action(student,dict(action='submit',assignmentId=a['id'],answers=[0 if code=='101' else 1])).status_code==200
+ sub=state(teacher)['submissions'][0];assert sub['data']['attemptCount']==2 and sub['data']['score']==10 and len(sub['data']['history'])==1
+ assert action(student,dict(action='submit',assignmentId=a['id'],answers=[0])).status_code==409
+ assert action(teacher,dict(action='deleteRecord',id=a['id'])).status_code==200
+ with app.extensions['school_engine'].connect() as db:assert not db.execute(select(exam_files)).first()
+
+def test_opening_time_and_answer_excel(client,app):
+ import io,json
+ from openpyxl import Workbook
+ cid,cs=upload_test_accounts(client,app);teacher=cs['teacher'];student=cs['student']
+ q=dict(text='1+1',answers=['1','2','3','4'],correct=1)
+ d=dict(title='Hẹn giờ',body='Làm bài',type='quiz',questions=[q],essays=[],opensAt='2100-01-01T00:00:00Z',maxAttempts=0)
+ assert action(teacher,dict(action='record',kind='assignment',courseId=cid,data=d)).status_code==200
+ a=state(student)['records'][0];assert a['data']['questions']==[]
+ assert action(student,dict(action='submit',assignmentId=a['id'],answers=[1])).status_code==400
+ wb=Workbook();ws=wb.active;ws.append(['Ma de','Dang','Cau','Dap an']);ws.append(['101','quiz',1,'A']);out=io.BytesIO();wb.save(out)
+ r=teacher.post('/api/exams/keys',data={'courseId':cid,'file':(io.BytesIO(out.getvalue()),'keys.xlsx')},headers={'Origin':'http://localhost','X-CSRF-Token':token(teacher)})
+ assert r.status_code==200 and r.json['rows'][0]['answer']=='A'
+ assert teacher.get('/api/exams/key-template').status_code==200
+ assert student.get('/api/exams/key-template').status_code==403

@@ -23,6 +23,8 @@ limits=Table('school_login_limits',metadata,Column('key',String,primary_key=True
 
 library_files=Table('school_library_files',metadata,Column('id',String,primary_key=True),Column('record_id',String,ForeignKey('school_records.id'),unique=True,nullable=False),Column('name',String,nullable=False),Column('mime',String,nullable=False),Column('size',Integer,nullable=False),Column('content',LargeBinary,nullable=False))
 
+exam_files=Table('school_exam_variant_files',metadata,Column('id',String,primary_key=True),Column('record_id',String,ForeignKey('school_records.id'),nullable=False),Column('code',String,nullable=False),Column('name',String,nullable=False),Column('mime',String,nullable=False),Column('size',Integer,nullable=False),Column('content',LargeBinary,nullable=False),UniqueConstraint('record_id','code'))
+
 rosters=Table('school_rosters',metadata,Column('id',String,primary_key=True),Column('course_id',String,ForeignKey('school_courses.id'),nullable=False),Column('author_id',String,ForeignKey('school_members.id'),nullable=False),Column('data',Text,nullable=False),Column('status',String,nullable=False),Column('created_at',String,nullable=False))
 
 class AppError(Exception):
@@ -66,7 +68,7 @@ def assigned_exam(data,rid,mid):
  if not variants:return data
  index=int(hashlib.sha256((rid+':'+mid).encode()).hexdigest(),16)%len(variants)
  v=variants[index]
- return {**data,'questions':v['questions'],'essays':v['essays'],'examCode':v['code']}
+ return {**data,'questions':v['questions'],'essays':v['essays'],'examCode':v['code'],'file':v.get('file',data.get('file'))}
 def question_signature(q):
  kind=q.get('type','quiz')
  d={k:q.get(k) for k in ['text','points','topic','level','outcome']};d['type']=kind
@@ -85,6 +87,9 @@ def validate_variants(data):
   for q in v['questions']:validate_auto_question(q)
   for q in v['essays']:
    if not isinstance(q,dict) or q.get('type')!='essay':fail('Câu tự luận trong mã đề chưa hợp lệ.')
+  if data.get('source')=='uploaded':
+   validate_exam_data({**data,'questions':v['questions'],'essays':v['essays'],'variants':[]})
+   continue
   try:valid=Counter(question_signature(q) for q in v['questions']+v['essays'])==base
   except (TypeError,KeyError,IndexError):valid=False
   if not valid:fail('Bản đảo phải giữ nguyên nội dung, thang điểm và đáp án đúng của đề gốc.')
@@ -113,6 +118,9 @@ def validate_exam_data(d):
    q['outcome']=text(q.get('outcome',''),2000,False)
    if q['level'] not in ['Nhận biết','Thông hiểu','Vận dụng','Vận dụng cao']:fail('Mức độ không hợp lệ.')
   if abs(sum(q['points'] for q in all_q)-10)>0.001:fail('Tổng điểm đề phải bằng 10.')
+ if d.get('opensAt'):parse_date(d['opensAt'])
+ if d.get('opensAt') and d.get('due') and parse_date(d['opensAt'])>=parse_date(d['due']):fail('Giờ kết thúc phải sau giờ bắt đầu.')
+ if type(d.get('maxAttempts',1)) is not int or not 0<=d.get('maxAttempts',1)<=100:fail('Số lần làm bài từ 1–100 hoặc 0 để không giới hạn.')
  if d.get('minutes') is not None and (type(d['minutes']) is not int or not 1<=d['minutes']<=300):fail('Thời gian cần từ 1 đến 300 phút.')
  if d.get('grade') is not None and str(d['grade']) not in [str(i) for i in range(1,13)]:fail('Khối lớp không hợp lệ.')
  if d.get('tfScoring','progressive') not in ['progressive','equal']:fail('Cách chấm Đúng / Sai không hợp lệ.')
@@ -120,6 +128,48 @@ def validate_exam_data(d):
  validate_variants(d)
  if d.get('subjectCode') is not None and not re.fullmatch(r'\d{2}',str(d['subjectCode'])):fail('Mã môn cần đúng 2 chữ số.')
  d.pop('file',None)
+
+def exam_upload(file):
+ if not file or not file.filename:fail('Hãy chọn đề từ máy.')
+ raw=file.stream.read(5*1024*1024+1)
+ if not raw or len(raw)>5*1024*1024:fail('Tệp phải có nội dung, tối đa 5 MB.')
+ ext=Path(file.filename).suffix.lower();preview=''
+ allowed={'.pdf':'application/pdf','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','.txt':'text/plain','.md':'text/markdown'}
+ if ext not in allowed:fail('Hỗ trợ PDF, Word .docx, TXT và Markdown. File .doc cần lưu lại thành .docx; JSON nhập thành câu hỏi theo mẫu.')
+ if ext=='.pdf' and not raw.startswith(b'%PDF-'):fail('Nội dung không phải tệp PDF hợp lệ.')
+ if ext=='.docx':
+  try:
+   from xml.etree import ElementTree as ET
+   with zipfile.ZipFile(io.BytesIO(raw)) as z:
+    if len(z.infolist())>2000 or sum(i.file_size for i in z.infolist())>20*1024*1024:fail('File Word sau giải nén quá lớn.')
+    if '[Content_Types].xml' not in z.namelist() or 'word/document.xml' not in z.namelist() or any('vbaProject' in n for n in z.namelist()):fail('Cần file Word .docx không chứa macro.')
+    root=ET.fromstring(z.read('word/document.xml'))
+    ns={'w':'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+    preview='\n'.join(''.join(n.text or '' for n in paragraph.iter() if n.tag.endswith('}t')) for paragraph in root.findall('.//w:p',ns))[:20000]
+  except AppError:raise
+  except Exception:fail('Không đọc được Word. Hãy kiểm tra tệp .docx không có mật khẩu.')
+ if ext in ['.txt','.md']:
+  try:preview=raw.decode('utf-8-sig')
+  except UnicodeDecodeError:fail('File văn bản cần mã hóa UTF-8.')
+  if '\x00' in preview:fail('File không phải văn bản hợp lệ.')
+  preview=preview[:20000]
+ name=secure_filename(file.filename) or 'de-thi'+ext
+ return {'name':name,'mime':allowed[ext],'content':raw,'size':len(raw),'preview':preview}
+def outline_data(p):
+ if not isinstance(p,dict):fail('Đề cương chưa hợp lệ.')
+ title=text(p.get('title'),200);grade=str(p.get('grade',''))
+ if grade not in [str(i) for i in range(1,13)]:fail('Chọn khối lớp từ 1 đến 12.')
+ sections=p.get('sections')
+ if not isinstance(sections,list) or not 1<=len(sections)<=50:fail('Đề cương cần từ 1 đến 50 chủ đề.')
+ out=[]
+ for section in sections:
+  if not isinstance(section,dict):fail('Chủ đề chưa hợp lệ.')
+  value={'topic':text(section.get('topic'),200)}
+  for k in ['objectives','theory','exercises']:value[k]=text(section.get(k,''),10000,False)
+  if not any(value[k] for k in ['objectives','theory','exercises']):fail('Mỗi chủ đề cần nội dung ôn tập hoặc bài tập.')
+  out.append(value)
+ if sum(len(v) for a in out for v in a.values())>100000:fail('Đề cương quá dài; hãy tách thành nhiều phần.')
+ return dict(title=title,grade=grade,body=text(p.get('body',''),10000,False),sections=out,published=p.get('published') is True)
 
 def password(v):
  if not isinstance(v,str) or not 10<=len(v)<=200:fail('Mật khẩu cần từ 10 đến 200 ký tự.')
@@ -187,7 +237,7 @@ def parse_roster(upload):
  return result,errors
 
 def create_app(config=None):
- app=Flask(__name__,static_folder='static',static_url_path='/static');app.config.update(MAX_CONTENT_LENGTH=6*1024*1024,SECRET_KEY=os.getenv('SECRET_KEY'),DATABASE_URL=os.getenv('DATABASE_URL'),ADMIN_SETUP_TOKEN=os.getenv('ADMIN_SETUP_TOKEN'),SESSION_SECONDS=43200,TESTING=False)
+ app=Flask(__name__,static_folder='static',static_url_path='/static');app.config.update(MAX_CONTENT_LENGTH=26*1024*1024,SECRET_KEY=os.getenv('SECRET_KEY'),DATABASE_URL=os.getenv('DATABASE_URL'),ADMIN_SETUP_TOKEN=os.getenv('ADMIN_SETUP_TOKEN'),SESSION_SECONDS=43200,TESTING=False)
  if config:app.config.update(config)
  if not app.config['SECRET_KEY'] or len(app.config['SECRET_KEY'])<32:raise RuntimeError('Configure SECRET_KEY (at least 32 characters).')
  url=app.config['DATABASE_URL']
@@ -208,6 +258,7 @@ def create_app(config=None):
  cookie='school_session'
  def one(table,where):return g.db.execute(select(table).where(where)).mappings().first()
  def rows(table):return [dict(x) for x in g.db.execute(select(table)).mappings()]
+ def stored_file_bytes():return sum(g.db.execute(select(func.coalesce(func.sum(t.c.size),0))).scalar_one() for t in [library_files,exam_files])
  def origin():
   if request.headers.get('Origin')!=request.host_url.rstrip('/'):fail('Nguồn yêu cầu không hợp lệ.',403)
  def body():
@@ -276,7 +327,9 @@ def create_app(config=None):
    if res.status_code<400:g.db.commit()
    else:g.db.rollback()
   res.headers['X-Content-Type-Options']='nosniff';res.headers['Referrer-Policy']='same-origin';res.headers['X-Frame-Options']='DENY'
-  res.headers['Content-Security-Policy']="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+  res.headers['Content-Security-Policy']="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; frame-src 'self' blob:; base-uri 'self'; form-action 'self'"
+  if request.path.startswith('/api/exams/') and ('/files/' in request.path or request.path.endswith('/file')) and request.args.get('preview')=='1' and res.mimetype=='application/pdf':
+   res.headers['X-Frame-Options']='SAMEORIGIN';res.headers['Content-Security-Policy']="default-src 'none'; frame-ancestors 'self'"
   if request.path.startswith('/api/'):res.headers['Cache-Control']='no-store'
   return res
  @app.teardown_request
@@ -322,10 +375,12 @@ def create_app(config=None):
    c=next(c for c in cs if c['id']==r['course_id']);d=json.loads(r['data'])
    if not may_teach(m,c):
     if r['kind'] in ['attendance','grade','message'] and d.get('memberId') not in [m['id'],'all'] and r['author_id']!=m['id']:continue
+    if r['kind']=='outline' and not d.get('published'):continue
     if r['kind']=='assignment':
      d=assigned_exam(d,r['id'],m['id']);d.pop('variants',None)
      d.pop('answerNotes',None)
      for field in ['questions','essays']:d[field]=[{k:v for k,v in q.items() if k not in ['correct','outcome']} for q in d.get(field,[])]
+     if d.get('opensAt') and time.time()<parse_date(d['opensAt']):d.update(questions=[],essays=[]);d.pop('file',None)
    rs.append({**r,'data':d})
   ss=[]
   for sub in rows(submissions):
@@ -436,22 +491,35 @@ def create_app(config=None):
    rid=uid();file_data=None
    if request.path=='/api/exams':
     file=request.files.get('file')
-    if file and file.filename:
-     content=file.stream.read(5*1024*1024+1)
-     if not file.filename.lower().endswith('.pdf') or not content.startswith(b'%PDF-') or len(content)>5*1024*1024:fail('Chọn tệp PDF hợp lệ, tối đa 5 MB.')
+    if file and file.filename and not(d.get('source')=='uploaded' and d.get('variants')):
+     uploaded=exam_upload(file)
      if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246831)'))
-     used=g.db.execute(select(func.coalesce(func.sum(library_files.c.size),0))).scalar_one()
-     if used+len(content)>250*1024*1024:fail('Kho tệp đã đạt 250 MB.')
-     name=secure_filename(file.filename) or 'de-thi.pdf'
-     file_data=dict(id=uid(),record_id=rid,name=name,mime='application/pdf',size=len(content),content=content)
-     d['file']={'name':name,'url':'/api/exams/'+rid+'/file'}
+     used=stored_file_bytes()
+     if used+uploaded['size']>250*1024*1024:fail('Kho tệp đã đạt 250 MB.')
+     file_data=dict(id=uid(),record_id=rid,**{k:uploaded[k] for k in ['name','mime','size','content']})
+     d['file']={'name':uploaded['name'],'mime':uploaded['mime'],'size':uploaded['size'],'url':'/api/exams/'+rid+'/file','preview':uploaded['preview']}
+   variant_uploads=[]
+   if request.path=='/api/exams' and d.get('source')=='uploaded' and d.get('variants'):
+    for v in d['variants']:
+     uploaded=exam_upload(request.files.get('file_'+v['code']))
+     variant_uploads.append(dict(id=uid(),record_id=rid,code=v['code'],**{k:uploaded[k] for k in ['name','mime','size','content']}))
+     v['file']={k:uploaded[k] for k in ['name','mime','size','preview']};v['file']['url']='/api/exams/'+rid+'/files/'+v['code']
+    if sum(f['size'] for f in variant_uploads)>25*1024*1024:fail('Tổng tệp mã đề tối đa 25 MB.')
+    if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246831)'))
+    if stored_file_bytes()+sum(f['size'] for f in variant_uploads)>250*1024*1024:fail('Kho tệp đã đạt 250 MB.')
+    d['file']=d['variants'][0]['file']
    g.db.execute(insert(records).values(id=rid,course_id=cid,kind=kind,author_id=m['id'],data=json.dumps(d,ensure_ascii=False),created_at=now()))
+   for values in variant_uploads:g.db.execute(insert(exam_files).values(**values))
    if file_data:g.db.execute(insert(library_files).values(**file_data))
   elif a=='submit':
    if m['role']!='student':fail('Chỉ học sinh được nộp bài.',403)
    r=one(records,and_(records.c.id==text(p.get('assignmentId')),records.c.kind=='assignment'))
    if not r:fail('Không tìm thấy bài tập.',404)
    read(r['course_id']);d=assigned_exam(json.loads(r['data']),r['id'],m['id'])
+   if d.get('opensAt') and time.time()<parse_date(d['opensAt']):fail('Chưa đến giờ làm bài.')
+   previous=g.db.execute(select(submissions).where(and_(submissions.c.assignment_id==r['id'],submissions.c.member_id==m['id'])).with_for_update()).mappings().first()
+   prev=json.loads(previous['data']) if previous else None
+   if previous and d.get('maxAttempts',1)!=0 and prev.get('attemptCount',1)>=d.get('maxAttempts',1):fail('Đã hết số lần làm bài.',409)
    if d.get('due') and time.time()>parse_date(d['due']):fail('Đã hết hạn nộp.')
    if d['type'] in ['quiz','mixed']:
     ans=p.get('answers');qs=d['questions']
@@ -462,7 +530,13 @@ def create_app(config=None):
     if d['type']=='mixed':data.update(text=text(p.get('text'),30000),quizScore=data['score'],score=None)
    else:data={'text':text(p.get('text'),30000),'score':None,'feedback':''}
    if d.get('examCode'):data['examCode']=d['examCode']
-   g.db.execute(insert(submissions).values(id=uid(),assignment_id=r['id'],member_id=m['id'],data=json.dumps(data,ensure_ascii=False),created_at=now()))
+   data['attemptCount']=(prev.get('attemptCount',1) if prev else 0)+1
+   if previous:
+    history=prev.get('history',[])
+    history.append({k:v for k,v in prev.items() if k!='history'}|{'submittedAt':previous['created_at']})
+    data['history']=history[-20:]
+    g.db.execute(update(submissions).where(submissions.c.id==previous['id']).values(data=json.dumps(data,ensure_ascii=False),created_at=now()))
+   else:g.db.execute(insert(submissions).values(id=uid(),assignment_id=r['id'],member_id=m['id'],data=json.dumps(data,ensure_ascii=False),created_at=now()))
   elif a=='grade':
    sub=one(submissions,submissions.c.id==text(p.get('id')))
    if not sub:fail('Không tìm thấy bài nộp.',404)
@@ -485,6 +559,7 @@ def create_app(config=None):
     g.db.execute(delete(library_files).where(library_files.c.record_id==r['id']))
    else:teach(r['course_id'])
    g.db.execute(delete(library_files).where(library_files.c.record_id==r['id']))
+   g.db.execute(delete(exam_files).where(exam_files.c.record_id==r['id']))
    g.db.execute(delete(submissions).where(submissions.c.assignment_id==r['id']));g.db.execute(delete(records).where(records.c.id==r['id']))
   else:fail('Thao tác chưa hợp lệ.')
   return jsonify(ok=True)
@@ -506,7 +581,7 @@ def create_app(config=None):
    if not content or len(content)>5*1024*1024:fail('Tệp cần có nội dung và không vượt quá 5 MB.')
    file_data={'id':uid(),'record_id':rid,'name':name,'mime':allowed[ext],'size':len(content),'content':content}
    if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246831)'))
-   used=g.db.execute(select(func.coalesce(func.sum(library_files.c.size),0))).scalar_one();old_size=g.db.execute(select(library_files.c.size).where(library_files.c.record_id==rid)).scalar_one_or_none() or 0
+   used=stored_file_bytes();old_size=g.db.execute(select(library_files.c.size).where(library_files.c.record_id==rid)).scalar_one_or_none() or 0
    if used-old_size+len(content)>250*1024*1024:fail('Thư viện đã đạt hạn mức tệp 250 MB. Hãy xóa tệp cũ hoặc dùng liên kết.')
    d['file']={'name':name,'size':len(content),'url':'/api/library/'+rid+'/file'}
   elif f.get('removeFile')=='true':d['file']=None
@@ -528,6 +603,74 @@ def create_app(config=None):
   f=one(library_files,library_files.c.record_id==rid)
   if not f:fail('Không tìm thấy tệp.',404)
   return send_file(io.BytesIO(f['content']),mimetype=f['mime'],download_name=f['name'],as_attachment=True,max_age=0)
+ @app.get('/api/exams/<rid>/files/<code>')
+ def variant_file(rid,code):
+  require_member();r=one(records,and_(records.c.id==rid,records.c.kind=='assignment'))
+  if not r:fail('Không tìm thấy đề.',404)
+  c=read(r['course_id']);d=json.loads(r['data'])
+  if not may_teach(g.member,c) and d.get('opensAt') and time.time()<parse_date(d['opensAt']):fail('Chưa đến giờ mở đề.',403)
+  if not may_teach(g.member,c) and assigned_exam(d,rid,g.member['id']).get('examCode')!=code:fail('Bạn không được tải mã đề khác.',403)
+  f=one(exam_files,and_(exam_files.c.record_id==rid,exam_files.c.code==code))
+  if not f:fail('Không tìm thấy tệp mã đề.',404)
+  return send_file(io.BytesIO(f['content']),mimetype=f['mime'],download_name=f['name'],as_attachment=not(request.args.get('preview')=='1' and f['mime']=='application/pdf'),max_age=0)
+ @app.get('/api/exams/key-template')
+ def exam_key_template():
+  from openpyxl import Workbook
+  require_member()
+  if g.member['role']=='student':fail('Chỉ giáo viên dùng mẫu đáp án.',403)
+  wb=Workbook();ws=wb.active;ws.title='Đáp án';ws.append(['Ma de','Dang','Cau','Dap an'])
+  for row in [['101','quiz',1,'A'],['101','quiz',2,'C'],['101','truefalse',1,'Đ S Đ S'],['101','short',1,'2,5']]:ws.append(row)
+  for col in 'ABCD':ws.column_dimensions[col].width=22
+  out=io.BytesIO();wb.save(out);out.seek(0)
+  return send_file(out,as_attachment=True,download_name='mau-dap-an-ma-de.xlsx')
+ @app.post('/api/exams/keys')
+ def exam_keys():
+  from openpyxl import load_workbook
+  teach(text(request.form.get('courseId')));file=request.files.get('file')
+  if not file or not file.filename.lower().endswith('.xlsx'):fail('Chọn đáp án Excel .xlsx theo mẫu.')
+  raw=file.stream.read(2*1024*1024+1)
+  if len(raw)>2*1024*1024:fail('File đáp án tối đa 2 MB.')
+  try:
+   with zipfile.ZipFile(io.BytesIO(raw)) as z:
+    if sum(i.file_size for i in z.infolist())>20*1024*1024:fail('File đáp án sau giải nén quá lớn.')
+   wb=load_workbook(io.BytesIO(raw),read_only=True,data_only=True);ws=wb.active;values=list(ws.iter_rows(max_row=1002,max_col=4,values_only=True));wb.close()
+   if len(values)>1001:fail('Tối đa 1000 dòng đáp án.')
+   if [str(x or '').strip() for x in values[0]]!=['Ma de','Dang','Cau','Dap an']:fail('Tiêu đề Excel cần theo đúng mẫu tải xuống.')
+   out=[]
+   for row in values[1:]:
+    if not any(v is not None for v in row):continue
+    code,kind,number,answer=row
+    if kind not in ['quiz','truefalse','short'] or type(number) not in [int,float] or int(number)!=number:fail('Dạng hoặc số câu chưa đúng mẫu.')
+    out.append(dict(code=str(code),type=kind,number=int(number),answer=str(answer) if answer is not None else ''))
+   return jsonify(rows=out)
+  except AppError:raise
+  except Exception:fail('Không đọc được Excel đáp án. Hãy dùng mẫu .xlsx không có mật khẩu.')
+ @app.post('/api/exams/inspect')
+ def inspect_exam():
+  teach(text(request.form.get('courseId')));uploaded=exam_upload(request.files.get('file'))
+  return jsonify(**{k:uploaded[k] for k in ['name','mime','size','preview']})
+ @app.post('/api/outlines')
+ def save_outline():
+  p=body();cid=text(p.get('courseId'));c=teach(cid);d=outline_data(p.get('data') or {});d['subject']=c['subject'];rid=text(p.get('id')) if p.get('id') else uid();existing=one(records,records.c.id==rid)
+  if existing:
+   if existing['kind']!='outline':fail('Không tìm thấy đề cương.',404)
+   teach(existing['course_id'])
+   g.db.execute(update(records).where(records.c.id==rid).values(course_id=cid,data=json.dumps(d,ensure_ascii=False)))
+  else:g.db.execute(insert(records).values(id=rid,course_id=cid,kind='outline',author_id=g.member['id'],data=json.dumps(d,ensure_ascii=False),created_at=now()))
+  return jsonify(ok=True,id=rid)
+ @app.post('/api/outlines/export')
+ def export_outline_draft():
+  from exam_export import standalone_outline_doc
+  p=body();c=teach(text(p.get('courseId')));d=outline_data(p.get('data') or {});d['subject']=c['subject']
+  return send_file(io.BytesIO(standalone_outline_doc(d)),as_attachment=True,download_name='de-cuong-on-tap.docx')
+ @app.get('/api/outlines/<rid>/word')
+ def export_saved_outline(rid):
+  from exam_export import standalone_outline_doc
+  require_member();r=one(records,and_(records.c.id==rid,records.c.kind=='outline'))
+  if not r:fail('Không tìm thấy đề cương.',404)
+  read(r['course_id']);d=json.loads(r['data'])
+  if g.member['role']=='student' and not d.get('published'):fail('Đề cương chưa công bố.',403)
+  return send_file(io.BytesIO(standalone_outline_doc(d)),as_attachment=True,download_name='de-cuong-on-tap.docx')
  @app.post('/api/exams/export')
  def export_exam():
   from exam_export import export_pack,outline_doc
@@ -541,9 +684,13 @@ def create_app(config=None):
  def exam_file(rid):
   require_member();r=one(records,and_(records.c.id==rid,records.c.kind=='assignment'))
   if not r:fail('Không tìm thấy đề.',404)
-  read(r['course_id']);f=one(library_files,library_files.c.record_id==rid)
-  if not f:fail('Không tìm thấy PDF.',404)
-  return send_file(io.BytesIO(f['content']),mimetype='application/pdf',download_name=f['name'],as_attachment=True,max_age=0)
+  c=read(r['course_id']);d=json.loads(r['data'])
+  if not may_teach(g.member,c) and d.get('opensAt') and time.time()<parse_date(d['opensAt']):fail('Chưa đến giờ mở đề.',403)
+  f=one(library_files,library_files.c.record_id==rid)
+  if not f:fail('Không tìm thấy tệp đề.',404)
+  inline=request.args.get('preview')=='1' and f['mime']=='application/pdf'
+  response=send_file(io.BytesIO(f['content']),mimetype=f['mime'],download_name=f['name'],as_attachment=not inline,max_age=0)
+  return response
  @app.get('/')
  def index():return send_from_directory(app.static_folder,'index.html')
  @app.get('/assets/<path:name>')
