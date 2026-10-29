@@ -1,12 +1,13 @@
 """Independent school portal for Render. No ChatGPT or Cloudflare dependency."""
-import os,json,re,hmac,secrets,hashlib,time
+import os,json,re,hmac,secrets,hashlib,time,io
 from pathlib import Path
 from datetime import datetime,timezone
 from functools import wraps
-from flask import Flask,request,jsonify,g,send_from_directory,make_response
+from flask import Flask,request,jsonify,g,send_from_directory,send_file,make_response
+from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash,check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
-from sqlalchemy import create_engine,MetaData,Table,Column,String,Integer,Text,ForeignKey,UniqueConstraint,select,insert,update,delete,and_,func
+from sqlalchemy import create_engine,MetaData,Table,Column,String,Integer,Text,LargeBinary,ForeignKey,UniqueConstraint,select,insert,update,delete,and_,func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text as sql_text
 
@@ -18,6 +19,8 @@ records=Table('school_records',metadata,Column('id',String,primary_key=True),Col
 submissions=Table('school_submissions',metadata,Column('id',String,primary_key=True),Column('assignment_id',String,ForeignKey('school_records.id'),nullable=False),Column('member_id',String,ForeignKey('school_members.id'),nullable=False),Column('data',Text,nullable=False),Column('created_at',String,nullable=False),UniqueConstraint('assignment_id','member_id'))
 sessions=Table('school_sessions',metadata,Column('token_hash',String,primary_key=True),Column('member_id',String,ForeignKey('school_members.id'),nullable=False),Column('csrf',String,nullable=False),Column('expires_at',Integer,nullable=False))
 limits=Table('school_login_limits',metadata,Column('key',String,primary_key=True),Column('failures',Integer,nullable=False),Column('expires_at',Integer,nullable=False))
+
+library_files=Table('school_library_files',metadata,Column('id',String,primary_key=True),Column('record_id',String,ForeignKey('school_records.id'),unique=True,nullable=False),Column('name',String,nullable=False),Column('mime',String,nullable=False),Column('size',Integer,nullable=False),Column('content',LargeBinary,nullable=False))
 
 class AppError(Exception):
  def __init__(self,message,status=400):self.message=message;self.status=status
@@ -42,7 +45,7 @@ def may_teach(m,c):return not m['disabled'] and (m['role']=='admin' or (m['role'
 def public_member(m):return {k:v for k,v in m.items() if k!='password_hash'}
 
 def create_app(config=None):
- app=Flask(__name__,static_folder='static',static_url_path='/static');app.config.update(MAX_CONTENT_LENGTH=160000,SECRET_KEY=os.getenv('SECRET_KEY'),DATABASE_URL=os.getenv('DATABASE_URL'),ADMIN_SETUP_TOKEN=os.getenv('ADMIN_SETUP_TOKEN'),SESSION_SECONDS=43200,TESTING=False)
+ app=Flask(__name__,static_folder='static',static_url_path='/static');app.config.update(MAX_CONTENT_LENGTH=6*1024*1024,SECRET_KEY=os.getenv('SECRET_KEY'),DATABASE_URL=os.getenv('DATABASE_URL'),ADMIN_SETUP_TOKEN=os.getenv('ADMIN_SETUP_TOKEN'),SESSION_SECONDS=43200,TESTING=False)
  if config:app.config.update(config)
  if not app.config['SECRET_KEY'] or len(app.config['SECRET_KEY'])<32:raise RuntimeError('Configure SECRET_KEY (at least 32 characters).')
  url=app.config['DATABASE_URL']
@@ -113,6 +116,7 @@ def create_app(config=None):
  def before():
   if not request.path.startswith('/api/') and request.path!='/healthz':return
   g.db=engine.connect();g.member=None;g.auth=None
+  if request.path in ['/api/school','/api/login','/api/setup'] and (request.content_length or 0)>160000:fail('Nội dung quá lớn.',413)
   token=request.cookies.get(cookie)
   if token:
    sess=one(sessions,and_(sessions.c.token_hash==hashlib.sha256(token.encode()).hexdigest(),sessions.c.expires_at>int(time.time())))
@@ -166,13 +170,13 @@ def create_app(config=None):
  @app.get('/api/school')
  def snapshot():
   require_member();m=g.member;all_es=rows(enrollments);all_cs=rows(courses);cs=[c for c in all_cs if may_teach(m,c) or (m['role']=='student' and any(e['course_id']==c['id'] and e['member_id']==m['id'] for e in all_es))];ids={c['id'] for c in cs};es=[e for e in all_es if e['course_id'] in ids and (m['role']!='student' or e['member_id']==m['id'])]
-  ms=rows(members)
+  all_ms=rows(members);ms=all_ms
   if m['role']!='admin':ms=[x for x in ms if x['id']==m['id'] or any(c['teacher_id']==x['id'] for c in cs) or (m['role']=='teacher' and any(e['member_id']==x['id'] for e in es))]
   ms=[public_member(x) for x in ms]
   if m['role']!='admin':ms=[{k:v for k,v in x.items() if k not in ['email','username'] or x['id']==m['id']} for x in ms]
   all_rs=rows(records);rs=[]
   for r in sorted(all_rs,key=lambda x:x['created_at'],reverse=True):
-   if r['course_id'] not in ids:continue
+   if r['kind']=='library' or r['course_id'] not in ids:continue
    c=next(c for c in cs if c['id']==r['course_id']);d=json.loads(r['data'])
    if not may_teach(m,c):
     if r['kind'] in ['attendance','grade','message'] and d.get('memberId') not in [m['id'],'all'] and r['author_id']!=m['id']:continue
@@ -183,7 +187,14 @@ def create_app(config=None):
   for sub in rows(submissions):
    a=next((r for r in all_rs if r['id']==sub['assignment_id']),None)
    if a and a['course_id'] in ids and (m['role']!='student' or sub['member_id']==m['id']):ss.append({**sub,'data':json.loads(sub['data'])})
-  return jsonify(me=public_member(dict(m)),members=ms,courses=cs,enrollments=es,records=rs,submissions=ss)
+  lib=[]
+  for r in sorted(all_rs,key=lambda x:x['created_at'],reverse=True):
+   if r['kind']!='library':continue
+   d=json.loads(r['data'])
+   if m['role']=='student' and (r['course_id'] not in ids or not d.get('published')):continue
+   c=next((c for c in all_cs if c['id']==r['course_id']),None)
+   lib.append({**r,'data':d,'course_label':(c['name']+' · '+c['subject']) if c else 'Lớp / môn đã xóa','author_name':next((x['name'] for x in all_ms if x['id']==r['author_id']),'Giáo viên')})
+  return jsonify(me=public_member(dict(m)),members=ms,courses=cs,enrollments=es,records=rs,submissions=ss,library=lib)
  @app.post('/api/school')
  def action():
   p=body();a=p.get('action');m=g.member
@@ -275,9 +286,53 @@ def create_app(config=None):
   elif a=='deleteRecord':
    r=one(records,records.c.id==text(p.get('id')))
    if not r:fail('Không tìm thấy nội dung.')
-   teach(r['course_id']);g.db.execute(delete(submissions).where(submissions.c.assignment_id==r['id']));g.db.execute(delete(records).where(records.c.id==r['id']))
+   if r['kind']=='library':
+    if m['role']!='admin' and (m['role']!='teacher' or r['author_id']!=m['id']):fail('Chỉ người đăng hoặc quản trị viên được xóa tài liệu.',403)
+    g.db.execute(delete(library_files).where(library_files.c.record_id==r['id']))
+   else:teach(r['course_id'])
+   g.db.execute(delete(submissions).where(submissions.c.assignment_id==r['id']));g.db.execute(delete(records).where(records.c.id==r['id']))
   else:fail('Thao tác chưa hợp lệ.')
   return jsonify(ok=True)
+ @app.post('/api/library')
+ def save_library():
+  if g.member['role'] not in ['admin','teacher']:fail('Chỉ giáo viên và quản trị viên được đăng tài liệu.',403)
+  f=request.form;rid=f.get('id') or uid();existing=one(records,records.c.id==rid)
+  if existing and (existing['kind']!='library' or (g.member['role']!='admin' and existing['author_id']!=g.member['id'])):fail('Bạn không được sửa tài liệu này.',403)
+  cid=text(f.get('courseId'));c=teach(cid);category=f.get('category');grade=f.get('grade','')
+  if category not in ['lesson','exam'] or grade not in [str(i) for i in range(1,13)]+['other']:fail('Chọn loại tài liệu và khối lớp hợp lệ.')
+  d={'title':text(f.get('title')), 'body':text(f.get('body',''),10000,False),'url':text(f.get('url',''),2000,False),'category':category,'grade':grade,'subject':c['subject'],'published':f.get('published')=='true'}
+  if d['url'] and not re.match(r'^https?://',d['url'],re.I):fail('Liên kết cần bắt đầu bằng http:// hoặc https://.')
+  if existing:d['file']=json.loads(existing['data']).get('file')
+  file=request.files.get('file');file_data=None
+  if file and file.filename:
+   name=secure_filename(file.filename) or 'tai-lieu';ext=Path(name).suffix.lower();allowed={'.pdf':'application/pdf','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','.txt':'text/plain','.md':'text/markdown','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg'}
+   if ext not in allowed:fail('Hỗ trợ PDF, DOCX, XLSX, TXT, MD và ảnh PNG/JPG.')
+   content=file.stream.read(5*1024*1024+1)
+   if not content or len(content)>5*1024*1024:fail('Tệp cần có nội dung và không vượt quá 5 MB.')
+   file_data={'id':uid(),'record_id':rid,'name':name,'mime':allowed[ext],'size':len(content),'content':content}
+   if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246831)'))
+   used=g.db.execute(select(func.coalesce(func.sum(library_files.c.size),0))).scalar_one();old_size=g.db.execute(select(library_files.c.size).where(library_files.c.record_id==rid)).scalar_one_or_none() or 0
+   if used-old_size+len(content)>250*1024*1024:fail('Thư viện đã đạt hạn mức tệp 250 MB. Hãy xóa tệp cũ hoặc dùng liên kết.')
+   d['file']={'name':name,'size':len(content),'url':'/api/library/'+rid+'/file'}
+  elif f.get('removeFile')=='true':d['file']=None
+  if not d['body'] and not d['url'] and not d.get('file'):fail('Cần nội dung, liên kết hoặc tệp tài liệu.')
+  values={'course_id':cid,'data':json.dumps(d,ensure_ascii=False)}
+  if existing:g.db.execute(update(records).where(records.c.id==rid).values(**values))
+  else:g.db.execute(insert(records).values(id=rid,kind='library',author_id=g.member['id'],created_at=now(),**values))
+  if file_data or f.get('removeFile')=='true':g.db.execute(delete(library_files).where(library_files.c.record_id==rid))
+  if file_data:g.db.execute(insert(library_files).values(**file_data))
+  return jsonify(ok=True,id=rid)
+ @app.get('/api/library/<rid>/file')
+ def download_library(rid):
+  require_member();r=one(records,and_(records.c.id==rid,records.c.kind=='library'))
+  if not r:fail('Không tìm thấy tài liệu.',404)
+  d=json.loads(r['data'])
+  if g.member['role']=='student':
+   if not d.get('published'):fail('Tài liệu chưa được xuất bản.',403)
+   read(r['course_id'])
+  f=one(library_files,library_files.c.record_id==rid)
+  if not f:fail('Không tìm thấy tệp.',404)
+  return send_file(io.BytesIO(f['content']),mimetype=f['mime'],download_name=f['name'],as_attachment=True,max_age=0)
  @app.get('/')
  def index():return send_from_directory(app.static_folder,'index.html')
  @app.get('/assets/<path:name>')

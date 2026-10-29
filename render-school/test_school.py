@@ -97,3 +97,46 @@ def test_rate_limit_and_static(client):
  assert client.get('/').status_code==200
  assert b'ChatGPT' not in client.get('/').data
  assert client.get('/healthz').headers['X-Frame-Options']=='DENY'
+
+def test_shared_library_and_file_permissions(client,app):
+ import io
+ setup(client)
+ for user,role in [('teach1','teacher'),('teach2','teacher'),('stud1','student'),('stud2','student')]:
+  assert action(client,{'action':'member','name':user,'username':user,'password':'Password123!','role':role}).status_code==200
+ ms={m['username']:m['id'] for m in state(client)['members']}
+ for name,teacher in [('10A','teach1'),('10B','teach2')]:assert action(client,{'action':'course','name':name,'subject':'Toán','teacherId':ms[teacher]}).status_code==200
+ cs={c['name']:c['id'] for c in state(client)['courses']}
+ for name,stu in [('10A','stud1'),('10B','stud2')]:assert action(client,{'action':'enroll','courseId':cs[name],'memberId':ms[stu]}).status_code==200
+ t1,t2,s1,s2=[app.test_client() for _ in range(4)]
+ for c,u in [(t1,'teach1'),(t2,'teach2'),(s1,'stud1'),(s2,'stud2')]:assert login(c,u).status_code==200
+ fields={'courseId':cs['10A'],'title':'Bài giảng hàm số','category':'lesson','grade':'10','body':'Khảo sát hàm số','published':'false'}
+ def upload(c,fields,filename=None,content=b'%PDF-1.4\nexample'):
+  data=dict(fields)
+  if filename:data['file']=(io.BytesIO(content),filename)
+  return c.post('/api/library',data=data,headers={'Origin':'http://localhost','X-CSRF-Token':token(c)})
+ assert upload(s1,fields).status_code==403
+ assert upload(t2,fields).status_code==403
+ assert upload(t1,fields,'bad.html').status_code==400
+ r=upload(t1,fields,'ham-so.pdf');assert r.status_code==200
+ rid=r.json['id'];path='/api/library/'+rid+'/file'
+ assert len(state(t2)['library'])==1
+ assert state(s1)['library']==[]
+ assert s1.get(path).status_code==403
+ assert app.test_client().get(path).status_code==401
+ fields.update(id=rid,published='true')
+ assert upload(t1,fields).status_code==200
+ assert len(state(s1)['library'])==1
+ assert state(s2)['library']==[]
+ assert s2.get(path).status_code==403
+ file=s1.get(path);assert file.status_code==200 and file.data.startswith(b'%PDF')
+ assert file.headers['Content-Disposition'].startswith('attachment;')
+ assert file.headers['Cache-Control']=='no-store'
+ assert upload(t2,{**fields,'courseId':cs['10B']}).status_code==403
+ assert action(t2,{'action':'deleteRecord','id':rid}).status_code==403
+ assert upload(t1,{**fields,'removeFile':'true'}).status_code==200
+ assert s1.get(path).status_code==404
+ assert upload(t1,fields,'moi.txt',b'Noi dung moi').status_code==200
+ assert s1.get(path).data==b'Noi dung moi'
+ assert action(client,{'action':'deleteRecord','id':rid}).status_code==200
+ assert state(t1)['library']==[]
+ assert s1.get(path).status_code==404

@@ -33,3 +33,9 @@ Chưa triển khai và chưa xác nhận địa chỉ onrender.com. Không dùng
 `python -m pytest -q` kiểm thử thiết lập quản trị, đăng nhập, băm mật khẩu, phiên/CSRF, khóa tài khoản và thu hồi phiên, phân quyền từng lớp/môn, điểm/bài nộp riêng, giấu đáp án, chấm tự động, nộp trùng, chấm điểm, điểm danh/học bù và trao đổi. Kiểm thử dùng SQLite tạm, không chứa dữ liệu thật.
 
 Giao diện được build bằng Vite; static/ được commit để Render runtime Python không cần cài Node. Muốn đổi giao diện, cài các phiên bản trong package.json, chạy npm run build và commit static/ mới. Bản hiện tại đã kiểm tra build, cú pháp Python và các kiểm thử API.
+
+## Thư viện và tiện ích giáo viên
+
+Thư viện chung phân Bài giảng / Ngân hàng đề thi, lọc môn/khối và tìm kiếm. Giáo viên có thể đăng nội dung, liên kết hoặc tệp PDF, DOCX, XLSX, TXT, MD, PNG/JPG (tối đa 5 MB/tệp, tổng kho tệp 250 MB). Tệp lưu PostgreSQL, không nằm trên ổ tạm Render. Chỉ người đăng hoặc quản trị viên sửa/xóa; học sinh chỉ xem/tải tài liệu đã xuất bản cho lớp/môn đang ghi danh. Mọi tải tệp qua API có xác thực; không đưa dữ liệu nhị phân vào phản hồi danh sách.
+
+Tiện ích giáo viên: đồ thị đa thức bậc tối đa 3 với lưới tọa độ, phóng/thu, xuất SVG; bảng biến thiên theo nghiệm đạo hàm; tạo mã số đề không trùng (không tự đảo đề); tính điểm trung bình theo hệ số. Chỉ giáo viên và quản trị viên có menu Tiện ích. Kiểm tra công thức bằng `node test_tools.mjs`; pytest kiểm tra upload, chia sẻ, xuất bản, sửa/xóa và quyền tải tệp.
