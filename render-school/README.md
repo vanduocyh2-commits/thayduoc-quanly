@@ -8,7 +8,7 @@ Bản độc lập của kho thayduoc-quanly. Không sửa hoặc kết nối d�
 
 ## Triển khai miễn phí
 
-Render web service: Free, runtime Docker; nhánh `website-o-nha-doc-lap`, Dockerfile `render-school/Dockerfile`, build context `render-school`, Root Directory để trống, dùng CMD trong Dockerfile; health check `/healthz`. Với dịch vụ Python đã tồn tại, đổi runtime trong Settings → Build → Source, giữ nguyên URL, gói Free và các biến môi trường/cơ sở dữ liệu hiện có. Không tạo lại cơ sở dữ liệu. Đẩy code đơn thuần không tự chuyển runtime cho dịch vụ quản lý thủ công.
+Render web service: Free, runtime Docker; nhánh `website-o-nha-doc-lap`, Dockerfile `render-school/Dockerfile`, build context `render-school`, Root Directory để trống, dùng CMD trong Dockerfile; trình đổi Source trong Dashboard có thể dùng Dockerfile ở gốc kho với context mặc định (file gốc chỉ sao chép render-school, cùng bộ chuyển); health check `/healthz`. Với dịch vụ Python đã tồn tại, đổi runtime trong Settings → Build → Source, giữ nguyên URL, gói Free và các biến môi trường/cơ sở dữ liệu hiện có. Không tạo lại cơ sở dữ liệu. Đẩy code đơn thuần không tự chuyển runtime cho dịch vụ quản lý thủ công.
 
 Cấu hình đã chuẩn bị trong render.yaml ở thư mục này, chưa tạo dịch vụ hoặc cơ sở dữ liệu. Không cấu hình tự tạo tài nguyên có phí. PostgreSQL miễn phí của Render hết hạn sau 30 ngày; do đó cấu hình yêu cầu DATABASE_URL của một cơ sở dữ liệu PostgreSQL riêng đã được xác nhận là miễn phí (ví dụ dự án Supabase Free riêng). Không dùng chung database với trung tâm. Website từ chối khởi động nếu không có DATABASE_URL, để tránh vô tình lưu SQLite vào ổ tạm trên Render.
 
