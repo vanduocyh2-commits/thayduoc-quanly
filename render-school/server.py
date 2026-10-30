@@ -81,6 +81,11 @@ def assigned_exam(data,rid,mid):
  index=int(hashlib.sha256((rid+':'+mid).encode()).hexdigest(),16)%len(variants)
  v=next((v for v in variants if data.get('codePolicy')=='fixed' and v['code']==data.get('fixedExamCode')),variants[index])
  return {**data,'questions':v['questions'],'essays':v['essays'],'examCode':v['code'],'file':v.get('file',data.get('file'))}
+def configure_code_policy(data,policy='random',fixed=''):
+ codes=[v['code'] for v in data.get('variants',[])]
+ if policy not in ['random','fixed'] or (policy=='fixed' and fixed not in codes):fail('Chọn cách phân và mã đề hợp lệ.')
+ data.update(codePolicy=policy,fixedExamCode=fixed if policy=='fixed' else '')
+
 def question_signature(q):
  kind=q.get('type','quiz')
  d={k:q.get(k) for k in ['text','points','topic','level','outcome']};d['type']=kind
@@ -543,7 +548,7 @@ def create_app(config=None):
   if m['role']!='admin':ms=[x for x in ms if x['id']==m['id'] or any(c['teacher_id']==x['id'] for c in cs) or (m['role']=='teacher' and any(e['member_id']==x['id'] for e in es))]
   ms=[public_member(x) for x in ms]
   if m['role']!='admin':ms=[{k:v for k,v in x.items() if k not in ['email','username'] or x['id']==m['id']} for x in ms]
-  all_subs=rows(submissions);submitted_ids={sub['assignment_id'] for sub in all_subs if sub['member_id']==m['id']};rs=[];removed=[];active_enrollments={(e['course_id'],e['member_id']) for e in all_es}
+  all_subs=rows(submissions);started_exams={c['assignment_id'] for c in rows(exam_clocks)} if m['role']!='student' else set();submitted_ids={sub['assignment_id'] for sub in all_subs if sub['member_id']==m['id']};rs=[];removed=[];active_enrollments={(e['course_id'],e['member_id']) for e in all_es}
   for r in sorted(all_rs,key=lambda x:x['created_at'],reverse=True):
    if r['kind'] in ['library','courseConfig'] or r['course_id'] not in ids:continue
    c=next(c for c in cs if c['id']==r['course_id']);d=json.loads(r['data'])
@@ -566,6 +571,7 @@ def create_app(config=None):
       for field in ['answerNotes','answerGuide','resources']:d.pop(field,None)
      for field in ['questions','essays']:d[field]=[{k:v for k,v in q.items() if k!='outcome' and (k!='correct' or show_answers)} for q in d.get(field,[])]
      if d.get('opensAt') and time.time()<parse_date(d['opensAt']):d.update(questions=[],essays=[]);d.pop('file',None)
+   if m['role']!='student' and r['kind']=='assignment':d['codePolicyLocked']=r['id'] in started_exams or any(sub['assignment_id']==r['id'] for sub in all_subs)
    rs.append({**r,'data':d})
   ss=[]
   for sub in all_subs:
@@ -840,6 +846,7 @@ def create_app(config=None):
     if file:data['file']={'name':file['name'],'mime':file['mime'],'size':file['size'],'url':'/api/exams/'+rid+'/file','preview':{'kind':'pdf'} if file['mime']=='application/pdf' else None}
    for field in ['closedAt','closedBy','bankArchivedAt','bankOnly','category']:data.pop(field,None)
    data.update(bankSourceId=root['id'],sourceAuthorId=root['author_id'],createdAt=now(),updatedAt=now(),assignedAt=now(),assignedBy=m['id'],maxAttempts=p.get('maxAttempts',1),opensAt=p.get('opensAt',''),due=p.get('due',''),gradingMode=p.get('gradingMode','auto'),subject=c['subject'])
+   configure_code_policy(data,p.get('codePolicy',data.get('codePolicy','random')),p.get('fixedExamCode',data.get('fixedExamCode','')))
    if data['gradingMode'] not in ['auto','semi','manual'] or type(data['maxAttempts']) is not int or not 0<=data['maxAttempts']<=100:fail('Cách chấm hoặc số lượt không hợp lệ.')
    for field in ['opensAt','due']:
     if data[field]:parse_date(data[field])
@@ -883,9 +890,9 @@ def create_app(config=None):
    if 'answerGuide' in p:d['answerGuide']=text(p['answerGuide'],30000,False);d['updatedAt']=now()
    if 'codePolicy' in p:
     policy=p['codePolicy'];fixed=p.get('fixedExamCode','')
-    if policy not in ['random','fixed'] or (policy=='fixed' and fixed not in [v['code'] for v in d.get('variants',[])]):fail('Chọn mã đề hợp lệ.')
-    if (policy!=d.get('codePolicy','random') or (policy=='fixed' and fixed!=d.get('fixedExamCode'))) and one(submissions,submissions.c.assignment_id==r['id']):fail('Đã có học sinh nộp bài. Không thể đổi cách gán mã đề.',409)
-    d.update(codePolicy=policy,fixedExamCode=fixed if policy=='fixed' else '')
+    changed=policy!=d.get('codePolicy','random') or (policy=='fixed' and fixed!=d.get('fixedExamCode'))
+    if changed and (one(submissions,submissions.c.assignment_id==r['id']) or one(exam_clocks,exam_clocks.c.assignment_id==r['id'])):fail('Đã có học sinh bắt đầu làm hoặc nộp bài. Không thể đổi cách phân mã đề.',409)
+    configure_code_policy(d,policy,fixed);d['updatedAt']=now()
    g.db.execute(update(records).where(records.c.id==r['id']).values(data=json.dumps(d,ensure_ascii=False)))
    if 'answerGuide' in p:propagate_source_metadata(r['id'],{'answerGuide':d['answerGuide'],'updatedAt':d['updatedAt']})
   elif a=='record':
@@ -898,11 +905,11 @@ def create_app(config=None):
    if kind in ['lesson','assignment','message']:d['body']=text(d.get('body'),20000 if kind!='message' else 4000)
    if d.get('url') and not re.match(r'^https?://',str(d['url']),re.I):fail('Liên kết không hợp lệ.')
    if kind=='assignment':
-    validate_exam_data(d);d['subject']=get_course(cid)['subject'];stamp=now();d['createdAt']=stamp;d['updatedAt']=stamp
+    validate_exam_data(d);configure_code_policy(d,d.get('codePolicy','random'),d.get('fixedExamCode',''));d['subject']=get_course(cid)['subject'];stamp=now();d['createdAt']=stamp;d['updatedAt']=stamp
     if not d.get('bankOnly') and not matches_grade(d,get_course(cid)):fail('Khối đề không khớp hoặc lớp chưa ghi khối. Chọn khối cho lớp trước khi giao.')
     if d.get('gradingMode','auto') not in ['auto','semi','manual']:fail('Cách chấm không hợp lệ.')
     d.pop('bankSourceId',None);d.pop('bankArchivedAt',None)
-    for key in ['closedAt','closedBy','resources','answerGuide','codePolicy','fixedExamCode']:d.pop(key,None)
+    for key in ['closedAt','closedBy','resources','answerGuide']:d.pop(key,None)
     for key,default in [('allowViewScore',True),('allowViewAnswers',False)]:
      if type(d.get(key,default)) is not bool:fail('Cấu hình công bố chưa hợp lệ.')
    if kind=='schedule':parse_date(d.get('at'));d['room']=text(d.get('room'))
