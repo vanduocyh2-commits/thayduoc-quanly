@@ -50,13 +50,17 @@ def test_semi_and_manual_grade_require_teacher_and_preserve_proposal(client,app)
  t1,t2,pupil,cs,ms=prepare(client,app)
  for mode in ['semi','manual']:
   root=create_exam(t1,cs['10A'],mode=mode)
-  assert action(t1,{'action':'assignBankExam','id':root['id'],'courseId':cs['10B'],'gradingMode':mode}).status_code==200
+  assert action(t1,{'action':'assignBankExam','id':root['id'],'courseId':cs['10B'],'gradingMode':mode,'maxAttempts':0}).status_code==200
   delivered=next(r for r in state(pupil)['records'] if r['kind']=='assignment' and r['data']['gradingMode']==mode)
   assert action(pupil,{'action':'submit','assignmentId':delivered['id'],'answers':[1],'text':'essay'}).status_code==200
   sub=next(s for s in state(t1)['submissions'] if s['assignment_id']==delivered['id'])
   assert sub['data']['score'] is None
   if mode=='semi':assert sub['data']['quizScore']==4
   else:assert 'quizScore' not in sub['data']
+  if mode=='semi':
+   assert action(pupil,{'action':'submit','assignmentId':delivered['id'],'answers':[1],'text':'second essay'}).status_code==200
+   private=next(s for s in state(pupil)['submissions'] if s['id']==sub['id'])['data']
+   for attempt in [private]+private.get('history',[]):assert 'quizScore' not in attempt and 'essayScore' not in attempt
   assert action(t1,{'action':'grade','id':sub['id'],'score':8}).status_code==200
   assert next(s for s in state(pupil)['submissions'] if s['id']==sub['id'])['data']['score']==8
 

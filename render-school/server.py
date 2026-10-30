@@ -508,7 +508,9 @@ def create_app(config=None):
    a=next((r for r in all_rs if r['id']==sub['assignment_id']),None)
    if a and a['course_id'] in ids and (m['role']!='teacher' or a['author_id']==m['id'] or may_teach(m,next(c for c in all_cs if c['id']==a['course_id']))) and (m['role']!='student' or matches_grade(json.loads(a['data']),next(c for c in all_cs if c['id']==a['course_id']))) and (a['course_id'],sub['member_id']) in active_enrollments and (m['role']!='student' or sub['member_id']==m['id']):
     sd=with_best_result(json.loads(sub['data']),sub['created_at'])
-    if m['role']=='student' and sd.get('score') is None:sd.pop('quizScore',None);sd.pop('essayScore',None)
+    if m['role']=='student':
+     for row in [sd]+sd.get('history',[])+([sd['bestAttempt']] if sd.get('bestAttempt') else []):
+      if row.get('score') is None:row.pop('quizScore',None);row.pop('essayScore',None)
     if m['role']=='student' and not json.loads(a['data']).get('allowViewScore',True):
      sd['scoreHidden']=True
      for row in [sd]+sd.get('history',[])+sd.get('attemptScores',[])+([sd['bestAttempt']] if sd.get('bestAttempt') else []):
