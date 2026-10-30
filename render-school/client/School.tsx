@@ -87,7 +87,7 @@ function panel(){if(!form)return null;const k=form.kind,item=form.item;return <s
 {k==='attendance'&&<><Field label="Ngày" name="date" type="date" value={new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Ho_Chi_Minh'})}/><label>Trạng thái<select name="status">{['Có mặt','Vắng có phép','Vắng không phép','Đi muộn','Học bù'].map(x=><option key={x}>{x}</option>)}</select></label></>}
 {k==='grade'&&<><Field label="Ngày kiểm tra" name="date" type="date" value={new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Ho_Chi_Minh'})}/><Field label="Điểm / 10" name="score" type="number" min="0" max="10" step="0.1"/><Field label="Nhận xét" name="body" required={false}/></>}
 {k==='schedule'&&<><Field label="Ngày giờ" name="at" type="datetime-local"/><Field label="Phòng / địa điểm" name="room"/></>}
-{k==='submission'&&<ExamTaking data={item.data} files={examFiles} setFiles={setExamFiles} notify={setMessage}/>}
+{k==='submission'&&<ExamTaking key={item.id} assignmentId={item.id} csrf={csrf} data={item.data} files={examFiles} setFiles={setExamFiles} notify={setMessage}/>}
 {k==='mark'&&<MarkWork key={item.id} submission={item} exam={s.records.find(r=>r.id===item.assignment_id)?.data}/>}
 
 <div className="actions">{k==='assignment'&&<button data-bank-only="true" disabled={busy}>Lưu vào ngân hàng</button>}<button disabled={busy}>{busy?'Đang lưu…':k==='submission'?'Nộp bài':k==='assignment'?'Giao bài cho lớp':'Lưu vào hệ thống'}</button><button type="button" className="secondary" onClick={()=>setForm(null)}>Hủy</button></div></form></section>}

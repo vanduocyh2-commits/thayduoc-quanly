@@ -24,6 +24,7 @@ courses=Table('school_courses',metadata,Column('id',String,primary_key=True),Col
 enrollments=Table('school_enrollments',metadata,Column('course_id',String,ForeignKey('school_courses.id'),primary_key=True),Column('member_id',String,ForeignKey('school_members.id'),primary_key=True))
 records=Table('school_records',metadata,Column('id',String,primary_key=True),Column('course_id',String,ForeignKey('school_courses.id'),nullable=False),Column('kind',String,nullable=False),Column('author_id',String,ForeignKey('school_members.id'),nullable=False),Column('data',Text,nullable=False),Column('created_at',String,nullable=False))
 submissions=Table('school_submissions',metadata,Column('id',String,primary_key=True),Column('assignment_id',String,ForeignKey('school_records.id'),nullable=False),Column('member_id',String,ForeignKey('school_members.id'),nullable=False),Column('data',Text,nullable=False),Column('created_at',String,nullable=False),UniqueConstraint('assignment_id','member_id'))
+exam_clocks=Table('school_exam_clocks',metadata,Column('assignment_id',String,ForeignKey('school_records.id',ondelete='CASCADE'),primary_key=True),Column('member_id',String,ForeignKey('school_members.id',ondelete='CASCADE'),primary_key=True),Column('attempt',Integer,primary_key=True),Column('started_at',Integer,nullable=False))
 sessions=Table('school_sessions',metadata,Column('token_hash',String,primary_key=True),Column('member_id',String,ForeignKey('school_members.id'),nullable=False),Column('csrf',String,nullable=False),Column('expires_at',Integer,nullable=False))
 limits=Table('school_login_limits',metadata,Column('key',String,primary_key=True),Column('failures',Integer,nullable=False),Column('expires_at',Integer,nullable=False))
 
@@ -331,6 +332,9 @@ def create_app(config=None):
  def issued_password(pupil):
   record=one(student_credentials,student_credentials.c.member_id==pupil['id'])
   return open_password(app.config['SECRET_KEY'],pupil['id'],record['encrypted_password'],pupil['password_hash']) if record else None
+ def student_account_version(pupil):
+  value=json.dumps([pupil['id'],pupil['username'],pupil['password_hash'],pupil['disabled']],separators=(',',':'))
+  return hmac.new(app.config['SECRET_KEY'].encode(),('school-account-version-v1|'+value).encode(),hashlib.sha256).hexdigest()
  def rename_roster_codes(mid,old,new):
   for row in rows(rosters):
    students=json.loads(row['data']);changed=False
@@ -606,8 +610,8 @@ def create_app(config=None):
   require_member();allowed=manageable_student_ids();all_courses=rows(courses);owned=[c for c in all_courses if may_teach(g.member,c)];owned_ids={c['id'] for c in owned};enrolled=rows(enrollments);vault={r['member_id']:r for r in rows(student_credentials)};result=[]
   for pupil in rows(members):
    if pupil['role']!='student' or pupil['id'] not in allowed:continue
-   secret=vault.get(pupil['id']);available=bool(secret and secret['hash_fingerprint']==hash_fingerprint(pupil['password_hash']))
-   result.append({'id':pupil['id'],'name':pupil['name'],'username':pupil['username'],'disabled':pupil['disabled'],'courses':[{'id':c['id'],'name':c['name'],'subject':c['subject']} for c in owned if any(e['course_id']==c['id'] and e['member_id']==pupil['id'] for e in enrolled)],'passwordAvailable':available,'credentialUpdatedAt':secret['updated_at'] if secret else None})
+   secret=vault.get(pupil['id']);available=bool(secret and open_password(app.config['SECRET_KEY'],pupil['id'],secret['encrypted_password'],pupil['password_hash']) is not None)
+   result.append({'id':pupil['id'],'name':pupil['name'],'username':pupil['username'],'disabled':pupil['disabled'],'courses':[{'id':c['id'],'name':c['name'],'subject':c['subject']} for c in owned if any(e['course_id']==c['id'] and e['member_id']==pupil['id'] for e in enrolled)],'passwordAvailable':available,'version':student_account_version(pupil),'credentialUpdatedAt':secret['updated_at'] if secret else None})
   return jsonify(students=result,courses=owned)
  @app.post('/api/student-accounts/<mid>/reveal')
  def reveal_student_account(mid):
@@ -637,6 +641,33 @@ def create_app(config=None):
    if plain:remember_issued_password(mid,plain,hashed)
    account_audit(mid,'account_update',{'oldUsername':old,'newUsername':new,'passwordChanged':bool(plain)})
   return jsonify(ok=True,username=new,passwordAvailable=bool(plain) or issued_password(pupil) is not None)
+ @app.post('/api/student-accounts/bulk-passwords')
+ def bulk_student_passwords():
+  require_member();allowed=manageable_student_ids();p=body();requested=p.get('students');replace=p.get('replaceExisting',False)
+  if p.get('confirmed') is not True:fail('Xác nhận danh sách học sinh trước khi cấp mật khẩu.')
+  if type(replace) is not bool:fail('Chọn cách cấp mật khẩu hợp lệ.')
+  if not isinstance(requested,list) or not requested or len(requested)>500:fail('Mỗi lần chọn từ 1 đến 500 học sinh.')
+  if any(not isinstance(row,dict) or not isinstance(row.get('id'),str) or not re.fullmatch(r'[a-f0-9]{64}',str(row.get('version',''))) for row in requested):fail('Tải lại danh sách tài khoản trước khi cấp mật khẩu.')
+  ids=[row['id'] for row in requested]
+  if len(set(ids))!=len(ids):fail('Danh sách học sinh bị trùng.')
+  if any(mid not in allowed for mid in ids):fail('Có học sinh ngoài phạm vi quản lý. Chưa cấp mật khẩu nào.',403)
+  if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246851)'))
+  for cid in sorted(c['id'] for c in rows(courses)):g.db.execute(select(courses).where(courses.c.id==cid).with_for_update()).first()
+  pupils={row['id']:row for row in g.db.execute(select(members).where(members.c.id.in_(sorted(ids))).order_by(members.c.id).with_for_update()).mappings()}
+  allowed=manageable_student_ids()
+  for row in requested:
+   pupil=pupils.get(row['id'])
+   if not pupil or pupil['role']!='student' or row['id'] not in allowed:fail('Phạm vi quản lý vừa thay đổi. Tải lại danh sách.',403)
+   if not hmac.compare_digest(row['version'],student_account_version(pupil)):fail('Có tài khoản vừa được cập nhật ở phiên khác. Chưa cấp mật khẩu nào; tải lại danh sách rồi thử lại.',409)
+  batch=uid();used=set();updated=[];skipped=[];alphabet='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+  for mid in ids:
+   if not replace and issued_password(pupils[mid]) is not None:skipped.append(mid);continue
+   plain=''.join(secrets.choice(alphabet) for _ in range(6))
+   while plain in used:plain=''.join(secrets.choice(alphabet) for _ in range(6))
+   used.add(plain);hashed=password(plain)
+   g.db.execute(update(members).where(members.c.id==mid).values(password_hash=hashed));g.db.execute(delete(sessions).where(sessions.c.member_id==mid));remember_issued_password(mid,plain,hashed)
+   account_audit(mid,'password_bulk_issue',{'batchId':batch,'replaceExisting':replace});updated.append(mid)
+  return jsonify(ok=True,updated=len(updated),skipped=len(skipped),updatedIds=updated)
  @app.post('/api/student-accounts/export')
  def export_student_accounts():
   p=body();allowed=manageable_student_ids();ids=p.get('ids');include=p.get('includePasswords') is True
@@ -678,6 +709,36 @@ def create_app(config=None):
   sheet.column_dimensions['B'].width=30;sheet.column_dimensions['C'].width=35
   out=io.BytesIO();w.save(out);out.seek(0)
   return send_file(out,as_attachment=True,download_name='mau-danh-sach-hoc-sinh.xlsx')
+ @app.post('/api/exams/<rid>/clock')
+ def exam_clock(rid):
+  require_member()
+  if g.member['role']!='student':fail('Chỉ học sinh được bắt đầu làm bài.',403)
+  r=one(records,and_(records.c.id==rid,records.c.kind=='assignment'))
+  if not r:fail('Không tìm thấy bài tập.',404)
+  read(r['course_id'])
+  g.db.execute(select(courses).where(courses.c.id==r['course_id']).with_for_update()).first()
+  r=g.db.execute(select(records).where(records.c.id==rid).with_for_update()).mappings().first()
+  if not r:fail('Không tìm thấy bài tập.',404)
+  read(r['course_id']);d=assigned_exam(json.loads(r['data']),rid,g.member['id'])
+  if d.get('bankOnly') or not matches_grade(d,get_course(r['course_id'])):fail('Đề chưa được giao cho lớp của bạn.',403)
+  current=int(time.time())
+  if d.get('closedAt'):fail('Đề đã đóng.',409)
+  if d.get('opensAt') and current<parse_date(d['opensAt']):fail('Chưa đến giờ làm bài.',409)
+  previous=one(submissions,and_(submissions.c.assignment_id==rid,submissions.c.member_id==g.member['id']))
+  completed=json.loads(previous['data']).get('attemptCount',1) if previous else 0
+  if d.get('maxAttempts',1)!=0 and completed>=d.get('maxAttempts',1):fail('Đã hết số lần làm bài.',409)
+  attempt=completed+1
+  key=and_(exam_clocks.c.assignment_id==rid,exam_clocks.c.member_id==g.member['id'],exam_clocks.c.attempt==attempt)
+  clock=one(exam_clocks,key)
+  if not clock:
+   if d.get('due') and current>parse_date(d['due']):fail('Đã hết hạn nộp.',409)
+   started=current
+   g.db.execute(insert(exam_clocks).values(assignment_id=rid,member_id=g.member['id'],attempt=attempt,started_at=started))
+  else:started=clock['started_at']
+  deadlines=[]
+  if d.get('minutes'):deadlines.append(started+int(d['minutes'])*60)
+  if d.get('due'):deadlines.append(int(parse_date(d['due'])))
+  return jsonify(startedAt=started*1000,deadline=min(deadlines)*1000 if deadlines else None,serverNow=current*1000,attempt=attempt)
  @app.post('/api/school')
  @app.post('/api/exams')
  @app.post('/api/submissions')
