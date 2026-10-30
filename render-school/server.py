@@ -201,7 +201,7 @@ def outline_data(p):
  return dict(title=title,grade=grade,body=text(p.get('body',''),10000,False),sections=out,published=p.get('published') is True,inLibrary=p.get('inLibrary',True) is True,requirements=text(p.get('requirements',''),10000,False),sourceMatrix=cleaned)
 
 def password(v):
- if not isinstance(v,str) or not 10<=len(v)<=200:fail('Mật khẩu cần từ 10 đến 200 ký tự.')
+ if not isinstance(v,str) or not 6<=len(v)<=200:fail('Mật khẩu cần từ 6 đến 200 ký tự.')
  return generate_password_hash(v)
 def username(v):
  v=text(v,60).lower()
@@ -685,7 +685,7 @@ def create_app(config=None):
       if existing['role']!='student' or existing['disabled'] or normalized(existing['name'])!=normalized(st['name']):fail(f"Mã {st['code']} đã thuộc tài khoản khác hoặc bị khóa. Hãy kiểm tra trước khi duyệt.",409)
       mid=existing['id'];pw='';note='Tài khoản đã có: giữ mật khẩu hiện tại'
      else:
-      mid=uid();pw=secrets.token_urlsafe(12);hashed=password(pw);note='Tài khoản mới'
+      mid=uid();pw=''.join(secrets.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-') for _ in range(6));hashed=password(pw);note='Tài khoản mới'
       g.db.execute(insert(members).values(id=mid,username=st['code'],password_hash=hashed,name=st['name'],email='',role='student',disabled=0));remember_issued_password(mid,pw,hashed)
      where=and_(enrollments.c.course_id==r['course_id'],enrollments.c.member_id==mid)
      if not one(enrollments,where):g.db.execute(insert(enrollments).values(course_id=r['course_id'],member_id=mid))

@@ -77,3 +77,13 @@ def test_cipher_is_bound_to_member_hash_and_secret():
  assert open_password(secret,'two',encrypted,'HASH') is None
  assert open_password(secret,'one',encrypted,'DIFFERENT') is None
  assert open_password('different'*8,'one',encrypted,'HASH') is None
+
+def test_six_character_issued_password_and_personal_change(client,app):
+ t1,t2,s1,s2,ids,cs=prepare(client,app)
+ assert edit(t1,ids['student1'],'student1','student1','Ab123').status_code==400
+ assert edit(t1,ids['student1'],'student1','student1','Ab1234').status_code==200
+ assert login(s1,'student1','Ab1234').status_code==200
+ assert post(t1,'/api/student-accounts/'+ids['student1']+'/reveal',{},token(t1)).json['password']=='Ab1234'
+ assert action(s1,{'action':'password','oldPassword':'Ab1234','password':'Cd5678'}).status_code==200
+ assert login(s1,'student1','Cd5678').status_code==200
+ assert login(s2,'student2','Password123!').status_code==200

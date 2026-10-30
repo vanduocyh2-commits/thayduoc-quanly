@@ -162,7 +162,7 @@ def test_roster_approval(client,app):
  assert not state(o)['rosters']
  assert action(t,{'action':'approveRoster','id':rid}).status_code==403
  approved=action(client,{'action':'approveRoster','id':rid});assert approved.status_code==200
- creds=approved.json['credentials'];assert len(creds)==2 and all(len(x['password'])>=10 for x in creds)
+ creds=approved.json['credentials'];assert len(creds)==2 and all(len(x['password'])==6 for x in creds)
  assert len(state(t)['enrollments'])==2
  assert action(client,{'action':'approveRoster','id':rid}).status_code==409
  hs=app.test_client();assert login(hs,creds[0]['username'],creds[0]['password']).status_code==200
