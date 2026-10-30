@@ -17,6 +17,12 @@ def converter_path():
 
 
 def convert_docx_to_pdf(content):
+    return convert_office_to_pdf(content, '.docx', 5 * 1024 * 1024)
+
+
+def convert_office_to_pdf(content, extension='.docx', max_output_bytes=10 * 1024 * 1024):
+    if extension not in ['.docx', '.doc', '.pptx', '.ppt']:
+        raise ConversionError('Hỗ trợ Word DOC/DOCX và PowerPoint PPT/PPTX.')
     executable = converter_path()
     if not executable:
         raise ConversionError('Máy chủ chưa có bộ chuyển Word sang PDF. Hãy tải PDF hoặc chờ quản trị viên hoàn tất cấu hình.')
@@ -28,7 +34,7 @@ def convert_docx_to_pdf(content):
             raise ConversionError('Máy chủ đang chuyển một đề Word khác. Vui lòng thử lại sau ít giây.')
         with tempfile.TemporaryDirectory(prefix='school-word-pdf-') as directory:
             root = Path(directory)
-            source = root / 'exam.docx'
+            source = root / ('exam' + extension)
             source.write_bytes(content)
             profile = root / 'profile'
             (profile / 'user').mkdir(parents=True)
@@ -41,7 +47,7 @@ def convert_docx_to_pdf(content):
             environment.update(HOME=directory, TMPDIR=directory, SAL_USE_VCLPLUGIN='svp')
             command = [executable, '-env:UserInstallation=' + profile.as_uri(), '--headless',
                        '--nologo', '--nodefault', '--norestore', '--convert-to',
-                       'pdf:writer_pdf_Export', '--outdir', directory, str(source)]
+                       ('pdf:impress_pdf_Export' if extension in ['.ppt', '.pptx'] else 'pdf:writer_pdf_Export'), '--outdir', directory, str(source)]
             try:
                 process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                            env=environment, start_new_session=True)
@@ -59,8 +65,8 @@ def convert_docx_to_pdf(content):
             output = root / 'exam.pdf'
             if process.returncode or not output.is_file():
                 raise ConversionError('Không chuyển được Word sang PDF. Kiểm tra tệp .docx không có mật khẩu hoặc tải PDF đã xuất từ Word.')
-            if not 0 < output.stat().st_size <= 5 * 1024 * 1024:
-                raise ConversionError('PDF sau chuyển đổi phải nhỏ hơn 5 MB. Thầy giảm dung lượng hình ảnh trong Word rồi tải lại.')
+            if not 0 < output.stat().st_size <= max_output_bytes:
+                raise ConversionError('PDF sau chuyển đổi quá lớn. Hãy giảm dung lượng hình ảnh hoặc chia tài liệu thành phần nhỏ.')
             pdf = output.read_bytes()
             if not pdf.startswith(b'%PDF-') or b'%%EOF' not in pdf[-1024:]:
                 raise ConversionError('Bộ chuyển đổi chưa tạo được PDF hợp lệ. Đề chưa được giao cho học sinh.')

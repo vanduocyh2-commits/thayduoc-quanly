@@ -12,7 +12,7 @@ from sqlalchemy import create_engine,MetaData,Table,Column,String,Integer,Text,L
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text as sql_text
 from answer_keys import read_answer_keys
-from pdf_conversion import convert_docx_to_pdf,ConversionError
+from pdf_conversion import convert_docx_to_pdf,convert_office_to_pdf,ConversionError
 from exam_updates import class_grade,matches_grade,check_update,regrade_submission
 from exam_results import with_best_result,grade_attempt
 from school_uploads import read_attachment
@@ -487,6 +487,28 @@ def create_app(config=None):
  def too_large(_):return jsonify(error='Nội dung quá lớn.'),413
  @app.errorhandler(500)
  def generic(_):return jsonify(error='Máy chủ gặp lỗi. Vui lòng thử lại.'),500
+ @app.post('/internal/convert-document')
+ def internal_document_conversion():
+  expected=os.getenv('DOCUMENT_CONVERTER_KEY','')
+  if len(expected)<32:return jsonify(error='Bộ chuyển tài liệu chưa được cấu hình.'),503
+  if not hmac.compare_digest(request.headers.get('X-Converter-Token',''),expected):return jsonify(error='Không có quyền chuyển tài liệu.'),403
+  if (request.content_length or 0)>11*1024*1024:return jsonify(error='Tệp tối đa 10 MB.'),413
+  file=request.files.get('file')
+  if not file or not file.filename:return jsonify(error='Chọn tài liệu Word hoặc PowerPoint.'),400
+  extension=Path(file.filename).suffix.lower()
+  if extension not in ['.doc','.docx','.ppt','.pptx']:return jsonify(error='Hỗ trợ DOC/DOCX/PPT/PPTX.'),400
+  raw=file.read(10*1024*1024+1)
+  if not raw or len(raw)>10*1024*1024:return jsonify(error='Tệp tối đa 10 MB.'),413
+  if extension in ['.docx','.pptx']:
+   try:
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+     entry='word/document.xml' if extension=='.docx' else 'ppt/presentation.xml'
+     if entry not in archive.namelist() or len(archive.infolist())>5000 or sum(f.file_size for f in archive.infolist())>80*1024*1024:raise ValueError()
+   except (zipfile.BadZipFile,ValueError):return jsonify(error='Tài liệu Office không hợp lệ hoặc quá lớn sau giải nén.'),400
+  elif not raw.startswith(bytes.fromhex('D0CF11E0A1B11AE1')):return jsonify(error='Tài liệu Office cũ không hợp lệ.'),400
+  try:converted=convert_office_to_pdf(raw,extension)
+  except ConversionError as error:return jsonify(error=str(error)),400
+  response=send_file(io.BytesIO(converted),mimetype='application/pdf',as_attachment=True,download_name='tai-lieu.pdf',max_age=0);response.headers['Cache-Control']='no-store';return response
  @app.get('/healthz')
  def health():g.db.execute(select(1));return jsonify(status='ok')
  @app.get('/api/auth')

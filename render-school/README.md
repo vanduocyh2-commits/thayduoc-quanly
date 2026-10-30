@@ -122,3 +122,8 @@ Chỉnh sửa nguồn có nút Cập nhật lại đề & đáp án, thay file �
 Tự động: tự chấm khách quan, tự luận chờ chấm. Bán tự động: giữ điểm máy đề xuất, giáo viên kiểm tra và duyệt tổng điểm; sau khi đổi đáp án, điểm tự luận cũ được giữ riêng để duyệt lại. Chấm tay: không lưu điểm tự động, giáo viên nhập tổng điểm. Cách chấm được chọn riêng cho từng bản giao từ cùng nguồn. Điểm đề xuất chưa được duyệt không được gửi cho học sinh.
 
 Kiểm tra thêm: `python -m pytest -q test_school_bank.py`, `python -m pytest -q`, `node --test test_*.mjs`, `npm run build`.
+
+
+## Bộ chuyển tài liệu nội bộ
+
+`POST /internal/convert-document` chuyển DOC/DOCX/PPT/PPTX sang PDF bằng LibreOffice Writer/Impress. Chỉ phục vụ máy chủ trung tâm có `X-Converter-Token` khớp `DOCUMENT_CONVERTER_KEY` cấu hình riêng trên Render. Không đưa khóa vào mã nguồn. Tệp tối đa 10 MB, dùng thư mục tạm riêng và tự xóa sau khi chuyển. Bộ chuyển dùng cùng khóa giới hạn một tiến trình với chức năng chuyển đề Word của nhà trường.
