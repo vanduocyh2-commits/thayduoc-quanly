@@ -53,7 +53,8 @@ def test_permissions_and_learning(client,app):
  assert not any(m['id']==ms['hs2'] for m in state(s1)['members'])
  assert action(c_math,{'action':'member','name':'bad','username':'bad','password':'Password123!','role':'teacher'}).status_code==403
  quiz={'title':'Quiz','body':'Câu hỏi','type':'quiz','due':'','questions':[{'text':'1+1?','answers':['1','2','3','4'],'correct':1}]}
- assert action(c_math,{'action':'record','courseId':cs['Văn'],'kind':'assignment','data':quiz}).status_code==403
+ # Shared bank publishing may target any class; roster and grading isolation remain scoped.
+ assert action(c_math,{'action':'record','courseId':cs['Văn'],'kind':'assignment','data':quiz}).status_code==200
  assert action(c_math,{'action':'record','courseId':cs['Toán'],'kind':'assignment','data':quiz}).status_code==200
  a=state(c_math)['records'][0]['id']
  assert state(c_math)['records'][0]['data']['questions'][0]['correct']==1

@@ -2,7 +2,7 @@
 import copy
 import math
 
-DETAIL_FIELDS = ('answers', 'text', 'attachments', 'score', 'feedback', 'quizScore', 'examCode',
+DETAIL_FIELDS = ('answers', 'text', 'attachments', 'score', 'feedback', 'essayScore', 'quizScore', 'examCode',
                  'attemptCount', 'submittedAt', 'gradedAt', 'gradedBy', 'summaryOnly')
 
 

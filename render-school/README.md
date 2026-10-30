@@ -108,3 +108,17 @@ Trong từng bài thi, giáo viên mở Đáp án, hướng dẫn và cấu hìn
 Điểm danh chọn lớp / môn, ngày và buổi Sáng / Chiều / Tối cùng hàng. Nút Điểm danh mở danh sách học sinh hiện tại; chọn trạng thái hoặc đánh dấu tất cả có mặt, rồi lưu cả buổi. Chọn ngày / buổi đã lưu để xem trạng thái, dùng nút Điểm danh lại bên cạnh để sửa. Các ngày / buổi đã lưu có nút truy cập nhanh. Không ghi đè nếu phiên khác đã sửa hoặc danh sách lớp đã đổi khi đang nhập. Điểm danh cũ không ghi buổi được xem là buổi Sáng.
 
 Kiểm tra: `python -m pytest -q`, `node --test test_*.mjs`, `npm run build`. Bảng mới được tạo bằng cơ chế khởi tạo an toàn hiện có, không xóa dữ liệu cũ.
+
+## Ngân hàng đề chung và quản lý bài theo lớp
+
+Thư viện liệt kê đề được soạn/tải lên ở mọi lớp; có Lưu vào ngân hàng riêng với Lưu & giao cho lớp. Đề chỉ lưu ngân hàng không xuất hiện ở tài khoản học sinh và không nhận bài nộp. Giáo viên có thể dùng đề chung giao cho bất cứ lớp/môn nào cùng khối. Chỉ tác giả nguồn hoặc quản trị viên được sửa, cập nhật đáp án/hướng dẫn hoặc rút đề khỏi ngân hàng. Nút Xóa khỏi ngân hàng giữ các bản giao, bài nộp và điểm đã có. Tài liệu đề cũ trong thư viện có thể giao thành bài tự luận theo file.
+
+Giao đề có xác nhận tên đề, lớp và lịch mở/hạn nộp. Ngày giờ tạo nguồn, cập nhật và giao bài được lưu riêng. Khi chọn tất cả lớp, phần Bài tập & kiểm tra được chia thành nhóm từng lớp/môn, có danh sách bài nộp để chấm ở cuối mỗi nhóm; bộ lọc lớp chỉ hiện nhóm tương ứng.
+
+Khối lớp được nhận từ tên lớp hoặc trường Khối lớp trong Tạo/Sửa lớp của quản trị viên. Đề đã ghi khối chỉ được giao/hiển thị cho khối tương ứng; lớp chưa nhận được khối cần được khai báo trước. Các đề cũ không ghi khối giữ tương thích. Quyền lấy đề và giao bài không mở quyền sửa danh sách, điểm danh hoặc thông tin lớp ngoài phân công.
+
+Chỉnh sửa nguồn có nút Cập nhật lại đề & đáp án, thay file đề theo mã, sửa câu hỏi/đáp án và hướng dẫn; cập nhật các bản đã giao và tính lại điểm tự chấm. Giữ thời gian nộp, file bài làm, nhận xét và phần điểm tự luận đã chấm. Đã có bài nộp thì giữ số câu, dạng, điểm từng câu và mã đề. Với lần làm cũ chỉ còn điểm tổng kết mà không còn câu trả lời, cập nhật bị chặn trước khi sửa dữ liệu để tránh tính sai điểm. Mã đề đã lưu của từng học sinh được giữ nguyên. Thay tệp Word nguồn vẫn tự chuyển PDF.
+
+Tự động: tự chấm khách quan, tự luận chờ chấm. Bán tự động: giữ điểm máy đề xuất, giáo viên kiểm tra và duyệt tổng điểm; sau khi đổi đáp án, điểm tự luận cũ được giữ riêng để duyệt lại. Chấm tay: không lưu điểm tự động, giáo viên nhập tổng điểm. Cách chấm được chọn riêng cho từng bản giao từ cùng nguồn. Điểm đề xuất chưa được duyệt không được gửi cho học sinh.
+
+Kiểm tra thêm: `python -m pytest -q test_school_bank.py`, `python -m pytest -q`, `node --test test_*.mjs`, `npm run build`.
