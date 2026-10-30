@@ -16,6 +16,7 @@ from pdf_conversion import convert_docx_to_pdf,ConversionError
 from exam_updates import class_grade,matches_grade,check_update,regrade_submission
 from exam_results import with_best_result,grade_attempt
 from school_uploads import read_attachment
+from student_credentials import seal_password,open_password,hash_fingerprint
 
 metadata=MetaData()
 members=Table('school_members',metadata,Column('id',String,primary_key=True),Column('username',String,unique=True,nullable=False),Column('password_hash',Text,nullable=False),Column('name',String,nullable=False),Column('email',String),Column('role',String,nullable=False),Column('disabled',Integer,nullable=False,default=0))
@@ -33,6 +34,9 @@ exam_files=Table('school_exam_variant_files',metadata,Column('id',String,primary
 rosters=Table('school_rosters',metadata,Column('id',String,primary_key=True),Column('course_id',String,ForeignKey('school_courses.id'),nullable=False),Column('author_id',String,ForeignKey('school_members.id'),nullable=False),Column('data',Text,nullable=False),Column('status',String,nullable=False),Column('created_at',String,nullable=False))
 submission_files=Table('school_submission_files',metadata,Column('id',String,primary_key=True),Column('submission_id',String,ForeignKey('school_submissions.id'),nullable=False),Column('attempt_count',Integer,nullable=False),Column('name',String,nullable=False),Column('mime',String,nullable=False),Column('size',Integer,nullable=False),Column('content',LargeBinary,nullable=False))
 exam_resources=Table('school_exam_resources',metadata,Column('id',String,primary_key=True),Column('record_id',String,ForeignKey('school_records.id'),nullable=False),Column('kind',String,nullable=False),Column('name',String,nullable=False),Column('mime',String,nullable=False),Column('size',Integer,nullable=False),Column('content',LargeBinary,nullable=False),UniqueConstraint('record_id','kind'))
+
+student_credentials=Table('school_student_credentials',metadata,Column('member_id',String,ForeignKey('school_members.id'),primary_key=True),Column('encrypted_password',Text,nullable=False),Column('hash_fingerprint',String,nullable=False),Column('updated_at',String,nullable=False),Column('updated_by',String,ForeignKey('school_members.id'),nullable=False))
+account_audits=Table('school_account_audits',metadata,Column('id',String,primary_key=True),Column('actor_id',String,ForeignKey('school_members.id'),nullable=False),Column('student_id',String,ForeignKey('school_members.id'),nullable=False),Column('action',String,nullable=False),Column('details',Text,nullable=False),Column('created_at',String,nullable=False))
 
 class AppError(Exception):
  def __init__(self,message,status=400):self.message=message;self.status=status
@@ -308,6 +312,40 @@ def create_app(config=None):
   return c
  def require_member():
   if not g.member:fail('Bạn cần đăng nhập.',401)
+ def manageable_student_ids():
+  if g.member['role']=='admin':return {row['id'] for row in rows(members) if row['role']=='student'}
+  if g.member['role']!='teacher':fail('Chỉ giáo viên và quản trị viên được quản lý tài khoản học sinh.',403)
+  owned={c['id'] for c in rows(courses) if c['teacher_id']==g.member['id']}
+  return {e['member_id'] for e in rows(enrollments) if e['course_id'] in owned}
+ def managed_student(mid):
+  if mid not in manageable_student_ids():fail('Bạn không có quyền quản lý tài khoản học sinh này.',403)
+  pupil=one(members,and_(members.c.id==mid,members.c.role=='student'))
+  if not pupil:fail('Không tìm thấy học sinh.',404)
+  return pupil
+ def account_audit(mid,action,details=None):
+  g.db.execute(insert(account_audits).values(id=uid(),actor_id=g.member['id'],student_id=mid,action=action,details=json.dumps(details or {},ensure_ascii=False),created_at=now()))
+ def remember_issued_password(mid,plain,hashed):
+  values=dict(encrypted_password=seal_password(app.config['SECRET_KEY'],mid,plain,hashed),hash_fingerprint=hash_fingerprint(hashed),updated_at=now(),updated_by=g.member['id'])
+  if one(student_credentials,student_credentials.c.member_id==mid):g.db.execute(update(student_credentials).where(student_credentials.c.member_id==mid).values(**values))
+  else:g.db.execute(insert(student_credentials).values(member_id=mid,**values))
+ def issued_password(pupil):
+  record=one(student_credentials,student_credentials.c.member_id==pupil['id'])
+  return open_password(app.config['SECRET_KEY'],pupil['id'],record['encrypted_password'],pupil['password_hash']) if record else None
+ def rename_roster_codes(mid,old,new):
+  for row in rows(rosters):
+   students=json.loads(row['data']);changed=False
+   for pupil in students:
+    if pupil.get('code')==old:pupil['code']=new;changed=True
+   if changed:g.db.execute(update(rosters).where(rosters.c.id==row['id']).values(data=json.dumps(students,ensure_ascii=False)))
+  for row in rows(records):
+   if row['kind']!='rosterRemoval':continue
+   data=json.loads(row['data'])
+   if data.get('memberId')!=mid:continue
+   data['code']=new
+   for backup in data.get('rosterRows',[]):
+    for pupil in backup.get('students',[]):
+     if pupil.get('code')==old:pupil['code']=new
+   g.db.execute(update(records).where(records.c.id==row['id']).values(data=json.dumps(data,ensure_ascii=False)))
  def reactivate_removed_student(cid,mid):
   rid='removed:'+cid+':'+mid;r=one(records,records.c.id==rid)
   if r:
@@ -534,6 +572,74 @@ def create_app(config=None):
    c=next((c for c in all_cs if c['id']==r['course_id']),None)
    lib.append({**r,'data':d,'course_label':(c['name']+' · '+c['subject']) if c else 'Lớp / môn đã xóa','author_name':next((x['name'] for x in all_ms if x['id']==r['author_id']),'Giáo viên')})
   return jsonify(assignmentCourses=all_cs if m['role']!='student' else [],me=public_member(dict(m)),removedStudents=removed,members=ms,courses=cs,enrollments=es,records=rs,submissions=ss,library=lib,rosters=[{**r,'data':json.loads(r['data'])} for r in rows(rosters) if m['role']=='admin' or (m['role']=='teacher' and r['author_id']==m['id'] and r['course_id'] in ids)])
+ @app.get('/api/grades/export')
+ def export_gradebook():
+  from gradebook_export import build_gradebook
+  state=snapshot().get_json();cid=request.args.get('courseId','all')
+  try:output,name=build_gradebook(state,cid,{row['id']:row['username'] for row in rows(members)})
+  except ValueError as error:fail(str(error),403)
+  return send_file(output,mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',as_attachment=True,download_name=name,max_age=0)
+ @app.get('/api/student-accounts')
+ def student_accounts():
+  require_member();allowed=manageable_student_ids();all_courses=rows(courses);owned=[c for c in all_courses if may_teach(g.member,c)];owned_ids={c['id'] for c in owned};enrolled=rows(enrollments);vault={r['member_id']:r for r in rows(student_credentials)};result=[]
+  for pupil in rows(members):
+   if pupil['role']!='student' or pupil['id'] not in allowed:continue
+   secret=vault.get(pupil['id']);available=bool(secret and secret['hash_fingerprint']==hash_fingerprint(pupil['password_hash']))
+   result.append({'id':pupil['id'],'name':pupil['name'],'username':pupil['username'],'disabled':pupil['disabled'],'courses':[{'id':c['id'],'name':c['name'],'subject':c['subject']} for c in owned if any(e['course_id']==c['id'] and e['member_id']==pupil['id'] for e in enrolled)],'passwordAvailable':available,'credentialUpdatedAt':secret['updated_at'] if secret else None})
+  return jsonify(students=result,courses=owned)
+ @app.post('/api/student-accounts/<mid>/reveal')
+ def reveal_student_account(mid):
+  pupil=managed_student(mid);plain=issued_password(pupil)
+  if plain is None:fail('Không đọc lại được mật khẩu cũ hoặc học sinh đã tự đổi. Hãy đặt mật khẩu mới để cấp và xuất.',409)
+  account_audit(mid,'password_reveal');return jsonify(password=plain)
+ @app.post('/api/student-accounts/<mid>')
+ def edit_student_account(mid):
+  managed_student(mid)
+  # Serialize staff edits and roster imports without changing the immutable member ID.
+  if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246851)'))
+  # Roster approval locks courses before rosters; use the same order here.
+  for cid in sorted(c['id'] for c in rows(courses)):g.db.execute(select(courses).where(courses.c.id==cid).with_for_update()).first()
+  pupil=g.db.execute(select(members).where(members.c.id==mid).with_for_update()).mappings().first();managed_student(mid);p=body();new=username(p.get('username'));old=pupil['username']
+  current_secret=one(student_credentials,student_credentials.c.member_id==mid)
+  if 'expectedCredentialUpdatedAt' in p and p['expectedCredentialUpdatedAt']!=(current_secret['updated_at'] if current_secret else None):fail('Mật khẩu vừa được cập nhật ở phiên khác. Tải lại trước khi sửa.',409)
+  if p.get('expectedUsername')!=old:fail('SBD vừa thay đổi ở phiên khác. Tải lại danh sách trước khi sửa.',409)
+  conflict=one(members,members.c.username==new)
+  if conflict and conflict['id']!=mid:fail('SBD / tên đăng nhập này đã được sử dụng.',409)
+  plain=p.get('password','');changes={}
+  if not isinstance(plain,str):fail('Mật khẩu chưa hợp lệ.')
+  if plain:
+   hashed=password(plain);changes['password_hash']=hashed
+  if new!=old:changes['username']=new;rename_roster_codes(mid,old,new)
+  if changes:
+   g.db.execute(update(members).where(members.c.id==mid).values(**changes));g.db.execute(delete(sessions).where(sessions.c.member_id==mid))
+   if plain:remember_issued_password(mid,plain,hashed)
+   account_audit(mid,'account_update',{'oldUsername':old,'newUsername':new,'passwordChanged':bool(plain)})
+  return jsonify(ok=True,username=new,passwordAvailable=bool(plain) or issued_password(pupil) is not None)
+ @app.post('/api/student-accounts/export')
+ def export_student_accounts():
+  p=body();allowed=manageable_student_ids();ids=p.get('ids');include=p.get('includePasswords') is True
+  if not isinstance(ids,list) or not ids or len(ids)>3000 or any(not isinstance(mid,str) for mid in ids) or len(set(ids))!=len(ids):fail('Chọn từ 1–3000 học sinh, không trùng.')
+  if any(mid not in allowed for mid in ids):fail('Có học sinh ngoài phạm vi quản lý. Chưa xuất tài khoản.',403)
+  from openpyxl import Workbook
+  pupils={row['id']:row for row in rows(members)};all_courses=rows(courses);es=rows(enrollments);vault={row['member_id']:row for row in rows(student_credentials)};owned={c['id']:c for c in all_courses if may_teach(g.member,c)};labels_by_student={}
+  for e in es:
+   if e['course_id'] in owned:
+    c=owned[e['course_id']];labels_by_student.setdefault(e['member_id'],[]).append(c['name']+' · '+c['subject'])
+  audits=[];book=Workbook();sheet=book.active;sheet.title='Tai khoan hoc sinh';sheet.freeze_panes='A2'
+  headers=['Họ và tên','SBD / Tên đăng nhập','Lớp / môn']+(['Mật khẩu đã cấp','Ghi chú mật khẩu'] if include else [])
+  sheet.append(headers)
+  for mid in ids:
+   pupil=pupils[mid];labels='; '.join(labels_by_student.get(mid,[]));values=[pupil['name'],pupil['username'],labels]
+   if include:
+    record=vault.get(mid);plain=open_password(app.config['SECRET_KEY'],mid,record['encrypted_password'],pupil['password_hash']) if record else None;values += [plain or '', 'Mật khẩu do nhà trường cấp' if plain is not None else 'Không đọc lại được; cần đặt mật khẩu mới']
+   row=sheet.max_row+1
+   for column,value in enumerate(values,1):
+    cell=sheet.cell(row,column,str(value));cell.data_type='s';cell.number_format='@'
+   audits.append(dict(id=uid(),actor_id=g.member['id'],student_id=mid,action='password_export' if include else 'account_export',details='{}',created_at=now()))
+  g.db.execute(insert(account_audits),audits)
+  for column,width in [('A',32),('B',25),('C',42),('D',28),('E',52)]:sheet.column_dimensions[column].width=width
+  sheet.auto_filter.ref=sheet.dimensions;out=io.BytesIO();book.save(out);out.seek(0)
+  return send_file(out,mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',as_attachment=True,download_name='tai-khoan-hoc-sinh.xlsx',max_age=0)
  @app.post('/api/student-roster/preview')
  def preview_roster():
   teach(text(request.form.get('courseId')))
@@ -579,8 +685,8 @@ def create_app(config=None):
       if existing['role']!='student' or existing['disabled'] or normalized(existing['name'])!=normalized(st['name']):fail(f"Mã {st['code']} đã thuộc tài khoản khác hoặc bị khóa. Hãy kiểm tra trước khi duyệt.",409)
       mid=existing['id'];pw='';note='Tài khoản đã có: giữ mật khẩu hiện tại'
      else:
-      mid=uid();pw=secrets.token_urlsafe(12);note='Tài khoản mới'
-      g.db.execute(insert(members).values(id=mid,username=st['code'],password_hash=password(pw),name=st['name'],email='',role='student',disabled=0))
+      mid=uid();pw=secrets.token_urlsafe(12);hashed=password(pw);note='Tài khoản mới'
+      g.db.execute(insert(members).values(id=mid,username=st['code'],password_hash=hashed,name=st['name'],email='',role='student',disabled=0));remember_issued_password(mid,pw,hashed)
      where=and_(enrollments.c.course_id==r['course_id'],enrollments.c.member_id==mid)
      if not one(enrollments,where):g.db.execute(insert(enrollments).values(course_id=r['course_id'],member_id=mid))
      reactivate_removed_student(r['course_id'],mid)
@@ -590,19 +696,24 @@ def create_app(config=None):
   elif a=='member':
    admin();role=p.get('role')
    if role not in ['teacher','student']:fail('Vai trò chưa hợp lệ.')
-   g.db.execute(insert(members).values(id=uid(),username=username(p.get('username')),password_hash=password(p.get('password')),name=text(p.get('name')),email=text(p.get('email',''),200,False),role=role,disabled=0))
+   mid=uid();hashed=password(p.get('password'));g.db.execute(insert(members).values(id=mid,username=username(p.get('username')),password_hash=hashed,name=text(p.get('name')),email=text(p.get('email',''),200,False),role=role,disabled=0))
+   if role=='student':remember_issued_password(mid,p['password'],hashed)
   elif a=='toggleMember':
    admin();x=one(members,members.c.id==text(p.get('id')))
    if not x or x['role']=='admin':fail('Không thể khóa quản trị viên.')
    g.db.execute(update(members).where(members.c.id==x['id']).values(disabled=0 if x['disabled'] else 1));g.db.execute(delete(sessions).where(sessions.c.member_id==x['id']))
   elif a in ['password','resetPassword']:
    if a=='resetPassword':
-    admin();target=text(p.get('id'));x=one(members,members.c.id==target)
+    target=text(p.get('id'));x=one(members,members.c.id==target)
+    if x and x['role']=='student':managed_student(target)
+    else:admin()
     if not x or x['role']=='admin':fail('Hãy dùng mục đổi mật khẩu của tôi cho quản trị viên.')
    else:
     target=m['id']
     if not isinstance(p.get('oldPassword'),str) or not check_password_hash(m['password_hash'],p['oldPassword']):fail('Mật khẩu hiện tại chưa đúng.')
-   g.db.execute(update(members).where(members.c.id==target).values(password_hash=password(p.get('password'))));g.db.execute(delete(sessions).where(sessions.c.member_id==target))
+   hashed=password(p.get('password'));g.db.execute(update(members).where(members.c.id==target).values(password_hash=hashed));g.db.execute(delete(sessions).where(sessions.c.member_id==target))
+   if a=='resetPassword' and x['role']=='student':remember_issued_password(target,p['password'],hashed);account_audit(target,'password_reset')
+   elif a=='password' and m['role']=='student':g.db.execute(delete(student_credentials).where(student_credentials.c.member_id==target))
   elif a=='course':
    admin();tid=text(p.get('teacherId'));t=one(members,and_(members.c.id==tid,members.c.role=='teacher',members.c.disabled==0))
    if not t:fail('Chọn giáo viên đang hoạt động.')

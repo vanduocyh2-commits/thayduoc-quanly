@@ -1,11 +1,13 @@
-import React from 'react';
+import React,{useState} from 'react';
 import {buildCourseGradebook,dateLabel,formatScore,gradebookCsv} from './gradebook.mjs';
 
-export default function Gradebook({state,courseId,staff,busy,onAddGrade,onRemove,onRestore,onClose}:any){
+export default function Gradebook({state,courseId,staff,busy,onAddGrade,onRemove,onRestore,onClose,notify}:any){
+ const [downloading,setDownloading]=useState(false);
  const books=state.courses.filter((c:any)=>courseId==='all'||c.id===courseId).map((c:any)=>buildCourseGradebook(state,c));
  const removed=(state.removedStudents||[]).filter((r:any)=>courseId==='all'||r.course_id===courseId);
- function download(){const url=URL.createObjectURL(new Blob([gradebookCsv(books)],{type:'text/csv;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download='bang-diem-nha-truong.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
- return <><div className="toolbar">{staff&&<button onClick={onAddGrade}>＋ Nhập điểm</button>}<button className="secondary" onClick={download}>↓ Xuất bảng điểm CSV (Excel)</button></div>
+ async function download(){setDownloading(true);try{const r=await fetch('/api/grades/export?courseId='+encodeURIComponent(courseId),{cache:'no-store'});if(!r.ok){const data=await r.json();throw Error(data.error)}const blob=await r.blob(),url=URL.createObjectURL(blob),link=document.createElement('a'),header=r.headers.get('Content-Disposition')||'',encoded=header.match(/filename\*=UTF-8''([^;]+)/),plain=header.match(/filename="?([^";]+)/);link.href=url;link.download=encoded?decodeURIComponent(encoded[1]):plain?.[1]||'BANG_DIEM_LOP.xlsx';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e:any){notify?.(e.message)}finally{setDownloading(false)}}
+
+ return <><div className="toolbar">{staff&&<button onClick={onAddGrade}>＋ Nhập điểm</button>}<button className="secondary" disabled={downloading||busy} onClick={download}>{downloading?'Đang xuất…':'↓ Xuất bảng điểm Excel theo lớp'}</button></div>
  <p className="muted">Danh sách đồng bộ từ học sinh đã được ghi danh / duyệt vào lớp. Mỗi bài thi lấy điểm cao nhất qua các lần làm; điểm 0 vẫn tính vào trung bình. Chưa thi hoặc chờ chấm không tính vào trung bình.</p>
  {books.map((book:any)=><section key={book.course.id} className="card gradebook-card"><div className="row"><h2>{book.course.name} · {book.course.subject}</h2><span className="muted">{book.rows.length} học sinh · {book.columns.length} cột điểm</span></div>
  <div className="gradebook-scroll"><table className="gradebook-table"><thead><tr><th className="gradebook-index" rowSpan={2}>STT</th><th className="gradebook-student" rowSpan={2}>Học sinh</th>{book.columns.map((c:any)=><th key={c.id} className="gradebook-date">{dateLabel(c.day)}</th>)}<th rowSpan={2}>Điểm trung bình</th>{staff&&<th rowSpan={2}>Thao tác</th>}</tr><tr>{book.columns.map((c:any)=><th key={c.id} className="gradebook-exam"><span>{c.title}</span>{c.kind==='exam'&&<><small>{c.closed?'Đã đóng đề':'Đang nhận bài'}</small>{staff&&!c.closed&&<button className="secondary mini" disabled={busy} onClick={()=>onClose(c.assignmentId,c.title)}>Đóng đề</button>}</>}</th>)}</tr></thead>
