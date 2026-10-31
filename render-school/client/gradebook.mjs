@@ -6,6 +6,10 @@ export function submissionAttempts(data, createdAt='') {
  for(const source of sources){const n=number(source.attemptCount);if(!rows.has(n))rows.set(n,{...source,attemptCount:n,score:numeric(source.score)?source.score:null});}
  return [...rows.values()].sort((a,b)=>b.attemptCount-a.attemptCount);
 }
+export function submissionAttemptSummary(data,createdAt=''){
+ const attempts=submissionAttempts(data,createdAt),scored=attempts.filter(r=>numeric(r.score)).sort((a,b)=>b.score-a.score||a.attemptCount-b.attemptCount),best=scored[0]||null;
+ return {attempts,total:Math.max(0,...attempts.map(a=>a.attemptCount)),pending:attempts.filter(a=>a.score===null).length,best,score:best?.score??null};
+}
 export function bestSubmissionScore(data, createdAt='') {
  const values=submissionAttempts(data,createdAt).map(row=>row.score).filter(numeric);
  return values.length?Math.max(...values):null;
@@ -34,7 +38,7 @@ export function buildCourseGradebook(state, course, now=Date.now()){
  columns.sort((a,b)=>a.day.localeCompare(b.day)||a.createdAt.localeCompare(b.createdAt)||a.id.localeCompare(b.id));
  const submissions=new Map(state.submissions.map(sub=>[JSON.stringify([sub.assignment_id,sub.member_id]),sub]));
  const rows=students.map(student=>{const cells=columns.map(column=>{
-  if(column.kind==='exam'){const sub=submissions.get(JSON.stringify([column.assignmentId,student.id]));return {columnId:column.id,score:sub?bestSubmissionScore(sub.data,sub.created_at):null,status:sub?(sub.data.scoreHidden?'Chưa công bố':'Chờ chấm'):'Chưa thi',submissionId:sub?.id,attemptCount:sub?.data.bestAttemptCount};}
+  if(column.kind==='exam'){const sub=submissions.get(JSON.stringify([column.assignmentId,student.id])),summary=sub?submissionAttemptSummary(sub.data,sub.created_at):null;return {columnId:column.id,score:sub?bestSubmissionScore(sub.data,sub.created_at):null,status:sub?(sub.data.scoreHidden?'Chưa công bố':'Chờ chấm'):'Chưa thi',submissionId:sub?.id,attemptCount:summary?.best?.attemptCount,totalAttempts:summary?.total||0};}
   const grade=column.records.filter(r=>r.data.memberId===student.id).sort((a,b)=>b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id))[0];
   return {columnId:column.id,score:numeric(grade?.data.score)?grade.data.score:null,status:'—'};
  });const scores=cells.map(c=>c.score).filter(numeric);return {student,cells,count:scores.length,average:scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length*100)/100:null};});

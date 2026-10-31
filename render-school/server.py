@@ -26,6 +26,7 @@ enrollments=Table('school_enrollments',metadata,Column('course_id',String,Foreig
 records=Table('school_records',metadata,Column('id',String,primary_key=True),Column('course_id',String,ForeignKey('school_courses.id'),nullable=False),Column('kind',String,nullable=False),Column('author_id',String,ForeignKey('school_members.id'),nullable=False),Column('data',Text,nullable=False),Column('created_at',String,nullable=False))
 submissions=Table('school_submissions',metadata,Column('id',String,primary_key=True),Column('assignment_id',String,ForeignKey('school_records.id'),nullable=False),Column('member_id',String,ForeignKey('school_members.id'),nullable=False),Column('data',Text,nullable=False),Column('created_at',String,nullable=False),UniqueConstraint('assignment_id','member_id'))
 exam_clocks=Table('school_exam_clocks',metadata,Column('assignment_id',String,ForeignKey('school_records.id',ondelete='CASCADE'),primary_key=True),Column('member_id',String,ForeignKey('school_members.id',ondelete='CASCADE'),primary_key=True),Column('attempt',Integer,primary_key=True),Column('started_at',Integer,nullable=False))
+teacher_registrations=Table('school_teacher_registrations',metadata,Column('id',String,primary_key=True),Column('username',String,unique=True,nullable=False),Column('name',String,nullable=False),Column('email',String),Column('password_hash',String,nullable=False),Column('status',String,nullable=False),Column('created_at',String,nullable=False),Column('reviewed_at',String),Column('reviewed_by',String),Column('member_id',String))
 sessions=Table('school_sessions',metadata,Column('token_hash',String,primary_key=True),Column('member_id',String,ForeignKey('school_members.id'),nullable=False),Column('csrf',String,nullable=False),Column('expires_at',Integer,nullable=False))
 limits=Table('school_login_limits',metadata,Column('key',String,primary_key=True),Column('failures',Integer,nullable=False),Column('expires_at',Integer,nullable=False))
 
@@ -468,7 +469,7 @@ def create_app(config=None):
  def before():
   if not request.path.startswith('/api/') and request.path!='/healthz':return
   g.db=engine.connect();g.member=None;g.auth=None
-  if request.path in ['/api/school','/api/login','/api/setup'] and (request.content_length or 0)>160000:fail('Nội dung quá lớn.',413)
+  if request.path in ['/api/school','/api/login','/api/setup','/api/teacher-registration'] and (request.content_length or 0)>160000:fail('Nội dung quá lớn.',413)
   token=request.cookies.get(cookie)
   if token:
    sess=one(sessions,and_(sessions.c.token_hash==hashlib.sha256(token.encode()).hexdigest(),sessions.c.expires_at>int(time.time())))
@@ -477,7 +478,7 @@ def create_app(config=None):
     if m:g.member=m;g.auth=sess
   if request.method=='POST':
    origin()
-   if request.path not in ['/api/login','/api/setup']:
+   if request.path not in ['/api/login','/api/setup','/api/teacher-registration']:
     require_member()
     if not hmac.compare_digest(request.headers.get('X-CSRF-Token',''),g.auth['csrf']):fail('Phiên xác thực không hợp lệ. Hãy tải lại trang.',403)
  @app.after_request
@@ -534,6 +535,21 @@ def create_app(config=None):
   p=body();check_rate('setup');expected=app.config.get('ADMIN_SETUP_TOKEN') or ''
   if len(expected)<24 or not hmac.compare_digest(str(p.get('setupToken','')),expected):record_failure('setup');fail('Mã thiết lập không đúng.',403)
   m={'id':'school-owner','username':username(p.get('username')),'password_hash':password(p.get('password')),'name':text(p.get('name')),'email':None,'role':'admin','disabled':0};g.db.execute(insert(members).values(**m));return sign_in(m)
+ @app.post('/api/teacher-registration')
+ def register_teacher():
+  if not one(members,members.c.role=='admin'):fail('Nhà trường chưa được thiết lập.',409)
+  p=body();u=username(p.get('username'));key='teacher-registration:'+u;check_rate(key);record_failure(key)
+  name=text(p.get('name'));email=text(p.get('email',''),200,False)
+  if email and not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email):fail('Email chưa hợp lệ.')
+  hashed=password(p.get('password'))
+  if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246853)'))
+  if one(members,members.c.username==u):fail('Tên đăng nhập không khả dụng. Hãy chọn tên khác.',409)
+  existing=one(teacher_registrations,teacher_registrations.c.username==u)
+  if existing and existing['status']!='rejected':fail('Đăng ký này đang chờ duyệt hoặc đã được xử lý.',409)
+  data=dict(username=u,name=name,email=email,password_hash=hashed,status='pending',created_at=now(),reviewed_at=None,reviewed_by=None,member_id=None)
+  if existing:g.db.execute(update(teacher_registrations).where(teacher_registrations.c.id==existing['id']).values(**data))
+  else:g.db.execute(insert(teacher_registrations).values(id=uid(),**data))
+  return jsonify(ok=True,message='Đã gửi đăng ký giáo viên. Quản trị viên duyệt xong, thầy/cô đăng nhập bằng tài khoản đã đăng ký.')
  @app.post('/api/login')
  def login():
   p=body();u=str(p.get('username','')).strip().lower()[:200];check_rate(u);m=one(members,members.c.username==u)
@@ -611,7 +627,7 @@ def create_app(config=None):
    if m['role']=='student' and (r['course_id'] not in ids or not d.get('published') or d.get('category')=='exam' and not matches_grade(d,next(c for c in all_cs if c['id']==r['course_id']))):continue
    c=next((c for c in all_cs if c['id']==r['course_id']),None)
    lib.append({**r,'data':d,'course_label':(c['name']+' · '+c['subject']) if c else 'Lớp / môn đã xóa','author_name':next((x['name'] for x in all_ms if x['id']==r['author_id']),'Giáo viên')})
-  return jsonify(assignmentCourses=all_cs if m['role']!='student' else [],me=public_member(dict(m)),removedStudents=removed,members=ms,courses=cs,enrollments=es,records=rs,submissions=ss,library=lib,rosters=[{**r,'data':json.loads(r['data'])} for r in rows(rosters) if m['role']=='admin' or (m['role']=='teacher' and r['author_id']==m['id'] and r['course_id'] in ids)])
+  return jsonify(teacherRegistrations=[{k:r[k] for k in ['id','username','name','email','status','created_at']} for r in rows(teacher_registrations) if r['status']=='pending'] if m['role']=='admin' else [],assignmentCourses=all_cs if m['role']!='student' else [],me=public_member(dict(m)),removedStudents=removed,members=ms,courses=cs,enrollments=es,records=rs,submissions=ss,library=lib,rosters=[{**r,'data':json.loads(r['data'])} for r in rows(rosters) if m['role']=='admin' or (m['role']=='teacher' and r['author_id']==m['id'] and r['course_id'] in ids)])
  @app.get('/api/grades/export')
  def export_gradebook():
   from gradebook_export import build_gradebook
@@ -768,7 +784,17 @@ def create_app(config=None):
    if request.path=='/api/submissions' and p.get('action')!='submit':fail('Yêu cầu nộp bài chưa hợp lệ.')
   else:p=body()
   a=p.get('action');m=g.member
-  if a=='submitRoster':
+  if a in ['approveTeacherRegistration','rejectTeacherRegistration']:
+   admin()
+   if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246853)'))
+   rid=text(p.get('id'));r=g.db.execute(select(teacher_registrations).where(teacher_registrations.c.id==rid).with_for_update()).mappings().first()
+   if not r or r['status']!='pending':fail('Đăng ký đã được xử lý hoặc không tồn tại.',409)
+   mid=None
+   if a=='approveTeacherRegistration':
+    if one(members,members.c.username==r['username']):fail('Tên đăng nhập đã được sử dụng. Chưa duyệt tài khoản.',409)
+    mid=uid();g.db.execute(insert(members).values(id=mid,username=r['username'],name=r['name'],email=r['email'] or None,password_hash=r['password_hash'],role='teacher',disabled=0))
+   g.db.execute(update(teacher_registrations).where(teacher_registrations.c.id==rid).values(status='approved' if mid else 'rejected',reviewed_at=now(),reviewed_by=m['id'],member_id=mid,password_hash=''))
+  elif a=='submitRoster':
    cid=text(p.get('courseId'));teach(cid);students=roster_students(p.get('students'))
    g.db.execute(insert(rosters).values(id=uid(),course_id=cid,author_id=m['id'],data=json.dumps(students,ensure_ascii=False),status='pending',created_at=now()))
   elif a in ['approveRoster','rejectRoster']:
