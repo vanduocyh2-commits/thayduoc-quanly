@@ -36,6 +36,7 @@ library_files=Table('school_library_files',metadata,Column('id',String,primary_k
 exam_files=Table('school_exam_variant_files',metadata,Column('id',String,primary_key=True),Column('record_id',String,ForeignKey('school_records.id'),nullable=False),Column('code',String,nullable=False),Column('name',String,nullable=False),Column('mime',String,nullable=False),Column('size',Integer,nullable=False),Column('content',LargeBinary,nullable=False),UniqueConstraint('record_id','code'))
 
 rosters=Table('school_rosters',metadata,Column('id',String,primary_key=True),Column('course_id',String,ForeignKey('school_courses.id'),nullable=False),Column('author_id',String,ForeignKey('school_members.id'),nullable=False),Column('data',Text,nullable=False),Column('status',String,nullable=False),Column('created_at',String,nullable=False))
+class_requests=Table('school_class_requests',metadata,Column('id',String,primary_key=True),Column('author_id',String,ForeignKey('school_members.id'),nullable=False),Column('data',Text,nullable=False),Column('status',String,nullable=False),Column('created_at',String,nullable=False),Column('reviewed_at',String),Column('reviewed_by',String),Column('course_id',String,ForeignKey('school_courses.id')))
 submission_files=Table('school_submission_files',metadata,Column('id',String,primary_key=True),Column('submission_id',String,ForeignKey('school_submissions.id'),nullable=False),Column('attempt_count',Integer,nullable=False),Column('name',String,nullable=False),Column('mime',String,nullable=False),Column('size',Integer,nullable=False),Column('content',LargeBinary,nullable=False))
 exam_resources=Table('school_exam_resources',metadata,Column('id',String,primary_key=True),Column('record_id',String,ForeignKey('school_records.id'),nullable=False),Column('kind',String,nullable=False),Column('name',String,nullable=False),Column('mime',String,nullable=False),Column('size',Integer,nullable=False),Column('content',LargeBinary,nullable=False),UniqueConstraint('record_id','kind'))
 
@@ -299,6 +300,22 @@ def create_app(config=None):
  cookie='school_session'
  def one(table,where):return g.db.execute(select(table).where(where)).mappings().first()
  def rows(table):return [dict(x) for x in g.db.execute(select(table)).mappings()]
+ def import_roster(cid,students):
+  if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246854)'))
+  credentials=[]
+  for st in roster_students(students):
+   existing=one(members,members.c.username==st['code'])
+   if existing:
+    if existing['role']!='student' or existing['disabled'] or normalized(existing['name'])!=normalized(st['name']):fail(f"Mã {st['code']} đã thuộc tài khoản khác hoặc bị khóa. Hãy kiểm tra trước khi duyệt.",409)
+    mid=existing['id'];pw='';note='Tài khoản đã có: giữ mật khẩu hiện tại'
+   else:
+    mid=uid();pw=''.join(secrets.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-') for _ in range(6));hashed=password(pw);note='Tài khoản mới'
+    g.db.execute(insert(members).values(id=mid,username=st['code'],password_hash=hashed,name=st['name'],email='',role='student',disabled=0));remember_issued_password(mid,pw,hashed)
+   where=and_(enrollments.c.course_id==cid,enrollments.c.member_id==mid)
+   if not one(enrollments,where):g.db.execute(insert(enrollments).values(course_id=cid,member_id=mid))
+   reactivate_removed_student(cid,mid)
+   credentials.append({'name':st['name'],'username':st['code'],'password':pw,'note':note})
+  return credentials
  def stored_file_bytes():return sum(g.db.execute(select(func.coalesce(func.sum(t.c.size),0))).scalar_one() for t in [library_files,exam_files,submission_files,exam_resources])
  def origin():
   if request.headers.get('Origin')!=request.host_url.rstrip('/'):fail('Nguồn yêu cầu không hợp lệ.',403)
@@ -633,8 +650,9 @@ def create_app(config=None):
     if m['role']=='student':d.pop('requirements',None)
    if m['role']=='student' and (r['course_id'] not in ids or not d.get('published') or d.get('category')=='exam' and not matches_grade(d,next(c for c in all_cs if c['id']==r['course_id']))):continue
    c=next((c for c in all_cs if c['id']==r['course_id']),None)
+   if c:d['subject']=c['subject']
    lib.append({**r,'data':d,'course_label':(c['name']+' · '+c['subject']) if c else 'Lớp / môn đã xóa','author_name':next((x['name'] for x in all_ms if x['id']==r['author_id']),'Giáo viên')})
-  return jsonify(teacherRegistrations=[{k:r[k] for k in ['id','username','name','email','status','created_at']} for r in rows(teacher_registrations) if r['status']=='pending'] if m['role']=='admin' else [],assignmentCourses=all_cs if m['role']!='student' else [],me=public_member(dict(m)),removedStudents=removed,members=ms,courses=cs,enrollments=es,records=rs,submissions=ss,library=lib,rosters=[{**r,'data':json.loads(r['data'])} for r in rows(rosters) if m['role']=='admin' or (m['role']=='teacher' and r['author_id']==m['id'] and r['course_id'] in ids)])
+  return jsonify(classRequests=[{**r,'data':json.loads(r['data'])} for r in rows(class_requests) if m['role']=='admin' or m['role']=='teacher' and r['author_id']==m['id']],teacherRegistrations=[{k:r[k] for k in ['id','username','name','email','status','created_at']} for r in rows(teacher_registrations) if r['status']=='pending'] if m['role']=='admin' else [],assignmentCourses=all_cs if m['role']!='student' else [],me=public_member(dict(m)),removedStudents=removed,members=ms,courses=cs,enrollments=es,records=rs,submissions=ss,library=lib,rosters=[{**r,'data':json.loads(r['data'])} for r in rows(rosters) if m['role']=='admin' or (m['role']=='teacher' and r['author_id']==m['id'] and r['course_id'] in ids)])
  @app.get('/api/grades/export')
  def export_gradebook():
   from gradebook_export import build_gradebook
@@ -735,7 +753,9 @@ def create_app(config=None):
   return send_file(out,mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',as_attachment=True,download_name='tai-khoan-hoc-sinh.xlsx',max_age=0)
  @app.post('/api/student-roster/preview')
  def preview_roster():
-  teach(text(request.form.get('courseId')))
+  require_member()
+  if g.member['role'] not in ['admin','teacher']:fail('Chỉ giáo viên và quản trị viên.',403)
+  if request.form.get('newClass')!='true':teach(text(request.form.get('courseId')))
   students,errors=parse_roster(request.files.get('file'))
   return jsonify(students=students,errors=errors)
  @app.get('/api/student-roster/template')
@@ -801,9 +821,38 @@ def create_app(config=None):
     if one(members,members.c.username==r['username']):fail('Tên đăng nhập đã được sử dụng. Chưa duyệt tài khoản.',409)
     mid=uid();g.db.execute(insert(members).values(id=mid,username=r['username'],name=r['name'],email=r['email'] or None,password_hash=r['password_hash'],role='teacher',disabled=0))
    g.db.execute(update(teacher_registrations).where(teacher_registrations.c.id==rid).values(status='approved' if mid else 'rejected',reviewed_at=now(),reviewed_by=m['id'],member_id=mid,password_hash=''))
+  elif a=='requestClass':
+   if m['role']!='teacher':fail('Chỉ giáo viên được gửi yêu cầu tạo lớp.',403)
+   if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246855)'))
+   data={'name':text(p.get('name')),'subject':' '.join(text(p.get('subject')).split()),'grade':str(p.get('grade') or '')}
+   if data['grade'] not in [str(i) for i in range(1,13)]:fail('Chọn khối lớp từ 1–12.')
+   data['students']=roster_students(p['students']) if p.get('students') else []
+   if any(c['teacher_id']==m['id'] and normalized(c['name'])==normalized(data['name']) and normalized(c['subject'])==normalized(data['subject']) for c in rows(courses)):fail('Lớp / môn này đã được tạo. Tải danh sách học sinh vào lớp hiện có.',409)
+   if any(r['author_id']==m['id'] and r['status']=='pending' and normalized(json.loads(r['data'])['name'])==normalized(data['name']) and normalized(json.loads(r['data'])['subject'])==normalized(data['subject']) for r in rows(class_requests)):fail('Lớp / môn này đang chờ quản trị duyệt.',409)
+   g.db.execute(insert(class_requests).values(id=uid(),author_id=m['id'],data=json.dumps(data,ensure_ascii=False),status='pending',created_at=now()))
+  elif a in ['approveClass','rejectClass']:
+   admin()
+   if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246855)'))
+   rid=text(p.get('id'));r=g.db.execute(select(class_requests).where(class_requests.c.id==rid).with_for_update()).mappings().first()
+   if not r or r['status']!='pending':fail('Yêu cầu tạo lớp đã được xử lý hoặc không tồn tại.',409)
+   data=json.loads(r['data']);cid=None;credentials=[]
+   if a=='approveClass':
+    teacher=one(members,and_(members.c.id==r['author_id'],members.c.role=='teacher',members.c.disabled==0))
+    if not teacher:fail('Giáo viên không còn hoạt động. Không thể duyệt lớp.',409)
+    if any(c['teacher_id']==r['author_id'] and normalized(c['name'])==normalized(data['name']) and normalized(c['subject'])==normalized(data['subject']) for c in rows(courses)):fail('Lớp / môn này đã tồn tại. Hãy từ chối yêu cầu trùng.',409)
+    cid=uid();g.db.execute(insert(courses).values(id=cid,name=data['name'],subject=data['subject'],teacher_id=r['author_id']))
+    g.db.execute(insert(records).values(id='course-config:'+cid,course_id=cid,kind='courseConfig',author_id=m['id'],data=json.dumps({'grade':data['grade']}),created_at=now()))
+    if data.get('students'):
+     credentials=import_roster(cid,data['students'])
+     g.db.execute(insert(rosters).values(id=uid(),course_id=cid,author_id=r['author_id'],data=json.dumps(data['students'],ensure_ascii=False),status='approved',created_at=now()))
+   g.db.execute(update(class_requests).where(class_requests.c.id==rid).values(status='approved' if cid else 'rejected',reviewed_at=now(),reviewed_by=m['id'],course_id=cid))
+   return jsonify(ok=True,courseId=cid)
   elif a=='submitRoster':
    cid=text(p.get('courseId'));teach(cid);students=roster_students(p.get('students'))
-   g.db.execute(insert(rosters).values(id=uid(),course_id=cid,author_id=m['id'],data=json.dumps(students,ensure_ascii=False),status='pending',created_at=now()))
+   g.db.execute(select(courses).where(courses.c.id==cid).with_for_update()).first()
+   credentials=import_roster(cid,students)
+   g.db.execute(insert(rosters).values(id=uid(),course_id=cid,author_id=m['id'],data=json.dumps(students,ensure_ascii=False),status='approved',created_at=now()))
+   return jsonify(ok=True,credentials=credentials)
   elif a in ['approveRoster','rejectRoster']:
    admin();rid=text(p.get('id'));r=one(rosters,rosters.c.id==rid)
    if not r or r['status']!='pending':fail('Danh sách đã được xử lý hoặc không tồn tại.',409)
@@ -812,18 +861,7 @@ def create_app(config=None):
    if not r or r['status']!='pending':fail('Danh sách đã được xử lý hoặc không tồn tại.',409)
    credentials=[]
    if a=='approveRoster':
-    for st in roster_students(json.loads(r['data'])):
-     existing=one(members,members.c.username==st['code'])
-     if existing:
-      if existing['role']!='student' or existing['disabled'] or normalized(existing['name'])!=normalized(st['name']):fail(f"Mã {st['code']} đã thuộc tài khoản khác hoặc bị khóa. Hãy kiểm tra trước khi duyệt.",409)
-      mid=existing['id'];pw='';note='Tài khoản đã có: giữ mật khẩu hiện tại'
-     else:
-      mid=uid();pw=''.join(secrets.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-') for _ in range(6));hashed=password(pw);note='Tài khoản mới'
-      g.db.execute(insert(members).values(id=mid,username=st['code'],password_hash=hashed,name=st['name'],email='',role='student',disabled=0));remember_issued_password(mid,pw,hashed)
-     where=and_(enrollments.c.course_id==r['course_id'],enrollments.c.member_id==mid)
-     if not one(enrollments,where):g.db.execute(insert(enrollments).values(course_id=r['course_id'],member_id=mid))
-     reactivate_removed_student(r['course_id'],mid)
-     credentials.append({'name':st['name'],'username':st['code'],'password':pw,'note':note})
+    credentials=import_roster(r['course_id'],json.loads(r['data']))
    g.db.execute(update(rosters).where(rosters.c.id==rid).values(status='approved' if a=='approveRoster' else 'rejected'))
    return jsonify(ok=True,credentials=credentials)
   elif a=='member':
@@ -1115,6 +1153,7 @@ def create_app(config=None):
   if existing and (existing['kind']!='library' or (g.member['role']!='admin' and existing['author_id']!=g.member['id'])):fail('Bạn không được sửa tài liệu này.',403)
   cid=text(f.get('courseId'));c=teach(cid);category=f.get('category');grade=f.get('grade','')
   if category not in ['lesson','exam'] or grade not in [str(i) for i in range(1,13)]+['other']:fail('Chọn loại tài liệu và khối lớp hợp lệ.')
+  if f.get('subject') and normalized(f['subject'])!=normalized(c['subject']):fail('Môn tài liệu phải khớp lớp / môn đã chọn.')
   d={'title':text(f.get('title')), 'body':text(f.get('body',''),10000,False),'url':text(f.get('url',''),2000,False),'category':category,'grade':grade,'subject':c['subject'],'published':f.get('published')=='true','updatedAt':now()}
   if d['url'] and not re.match(r'^https?://',d['url'],re.I):fail('Liên kết cần bắt đầu bằng http:// hoặc https://.')
   if existing:d['file']=json.loads(existing['data']).get('file')

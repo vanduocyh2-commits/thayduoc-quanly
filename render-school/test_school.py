@@ -151,37 +151,28 @@ def roster_context(client,app):
  cid=state(client)['courses'][0]['id'];t=app.test_client();login(t,'math');o=app.test_client();login(o,'other')
  return cid,t,o
 
-def test_roster_approval(client,app):
+def test_roster_direct_import(client,app):
  cid,t,o=roster_context(client,app)
  students=[{'code':'0001234567','name':'Học Sinh A'},{'code':'hs002','name':'Học Sinh B'}]
  p={'action':'submitRoster','courseId':cid,'students':students}
  assert action(o,p).status_code==403
- assert action(t,p).status_code==200
- assert len(state(client)['members'])==3
- rid=state(client)['rosters'][0]['id']
+ result=action(t,p);assert result.status_code==200
+ creds=result.json['credentials'];assert len(creds)==2 and all(len(x['password'])==6 for x in creds)
+ assert len(state(client)['members'])==5 and len(state(t)['enrollments'])==2
+ rid=state(client)['rosters'][0]['id'];assert state(client)['rosters'][0]['status']=='approved'
  assert not state(o)['rosters']
  assert action(t,{'action':'approveRoster','id':rid}).status_code==403
- approved=action(client,{'action':'approveRoster','id':rid});assert approved.status_code==200
- creds=approved.json['credentials'];assert len(creds)==2 and all(len(x['password'])==6 for x in creds)
- assert len(state(t)['enrollments'])==2
  assert action(client,{'action':'approveRoster','id':rid}).status_code==409
  hs=app.test_client();assert login(hs,creds[0]['username'],creds[0]['password']).status_code==200
  assert len(state(hs)['courses'])==1 and state(hs)['rosters']==[]
  assert action(hs,p).status_code==403
  assert 'credentials' not in state(client) and 'password' not in str(state(t)['rosters'])
- # Repeat import preserves existing accounts, passwords and enrolments.
- assert action(t,p).status_code==200
- rid=next(r['id'] for r in state(client)['rosters'] if r['status']=='pending')
- r=action(client,{'action':'approveRoster','id':rid});assert r.status_code==200
- assert all(x['password']=='' for x in r.json['credentials'])
+ result=action(t,p);assert result.status_code==200
+ assert all(x['password']=='' for x in result.json['credentials'])
  assert len(state(t)['enrollments'])==2
  assert login(hs,creds[0]['username'],creds[0]['password']).status_code==200
- # A collision aborts the whole transaction, including earlier rows.
- assert action(t,{**p,'students':[{'code':'new123','name':'New'},{'code':'math','name':'Conflict'}]}).status_code==200
- rid=next(r['id'] for r in state(client)['rosters'] if r['status']=='pending')
- assert action(client,{'action':'approveRoster','id':rid}).status_code==409
+ assert action(t,{**p,'students':[{'code':'new123','name':'New'},{'code':'math','name':'Conflict'}]}).status_code==409
  assert not any(m['username']=='new123' for m in state(client)['members'])
- assert action(client,{'action':'rejectRoster','id':rid}).status_code==200
  assert action(t,{**p,'students':[students[0],students[0]]}).status_code==400
 
 def test_roster_excel(client,app):

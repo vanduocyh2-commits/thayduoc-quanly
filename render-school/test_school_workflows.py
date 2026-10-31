@@ -66,7 +66,7 @@ def test_results_publishing_codes_close_and_roster_restore(school):
  assert state(s)['submissions'][0]['data']['bestScore']==8
  # Approved upload is linked to both enrollment and gradebook and is recoverable.
  assert action(t,{'action':'submitRoster','courseId':cid,'students':[{'code':'stu1','name':'stu1'}]}).status_code==200
- roster=state(t)['rosters'][0];assert action(admin,{'action':'approveRoster','id':roster['id']}).status_code==200
+ roster=state(t)['rosters'][0];assert roster['status']=='approved'
  assert action(cs['other'],{'action':'removeRosterStudent','courseId':cid,'memberId':ids['stu1']}).status_code==403
  assert action(t,{'action':'removeRosterStudent','courseId':cid,'memberId':ids['stu1']}).status_code==200
  assert state(t)['rosters'][0]['data']==[] and not state(t)['submissions']
@@ -107,8 +107,8 @@ def test_new_roster_students_sync_and_removed_attendance_does_not_block_edit(sch
  admin,cs,ids,cid,_=school;t=cs['teacher']
  assert action(t,{'action':'submitRoster','courseId':cid,'students':[{'code':'newpupil','name':'Học sinh mới'}]}).status_code==200
  roster=state(t)['rosters'][0]
- assert not any(m['name']=='Học sinh mới' for m in state(t)['members'])
- assert action(admin,{'action':'approveRoster','id':roster['id']}).status_code==200
+ assert roster['status']=='approved'
+ assert any(m['name']=='Học sinh mới' for m in state(t)['members'])
  pupil=next(m for m in state(t)['members'] if m['name']=='Học sinh mới')
  assert any(e['course_id']==cid and e['member_id']==pupil['id'] for e in state(t)['enrollments'])
  assert not state(t)['submissions']
