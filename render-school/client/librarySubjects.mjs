@@ -1,0 +1,2 @@
+export const subjectKey=value=>String(value||'').normalize('NFC').trim().replace(/\s+/g,' ').toLocaleLowerCase('vi');
+export function subjectGroups(entries){const groups=new Map();for(const entry of entries){const subject=String(entry.data?.subject||'').trim().replace(/\s+/g,' ')||'Chưa xác định môn',key=subjectKey(subject);if(!groups.has(key))groups.set(key,{key,subject,items:[]});groups.get(key).items.push(entry);}return [...groups.values()].sort((a,b)=>a.subject.localeCompare(b.subject,'vi'));}

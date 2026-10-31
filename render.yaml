@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: thayduoc-nha-truong
+    runtime: python
+    plan: free
+    rootDir: render-school
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 60
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_SETUP_TOKEN
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.12.13
