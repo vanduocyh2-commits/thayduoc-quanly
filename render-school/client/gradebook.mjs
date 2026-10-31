@@ -49,3 +49,6 @@ export function gradebookCsv(books){
  const rows=[];for(const book of books){rows.push([book.course.name,book.course.subject]);rows.push(['STT','Học sinh',...book.columns.map(c=>`${dateLabel(c.day)} · ${c.title}`),'Điểm trung bình','Số cột có điểm']);book.rows.forEach((row,i)=>rows.push([i+1,row.student.name,...row.cells.map(c=>c.score??''),row.average??'',row.count]));rows.push([]);}
  return '\ufeff'+rows.map(row=>row.map(cell).join(',')).join('\r\n');
 }
+
+export function formatAttemptDuration(value){if(typeof value!=='number'||!Number.isFinite(value)||value<0)return 'Chưa ghi nhận';const n=Math.floor(value);return n>=3600?`${Math.floor(n/3600)} giờ ${Math.floor(n%3600/60)} phút ${n%60} giây`:`${Math.floor(n/60)} phút ${n%60} giây`;}
+export function formatAttemptTime(value){if(!value||!Number.isFinite(Date.parse(value)))return 'Chưa ghi nhận';return new Date(value).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'});}

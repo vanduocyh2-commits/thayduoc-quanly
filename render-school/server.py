@@ -15,7 +15,7 @@ from sqlalchemy import text as sql_text
 from answer_keys import read_answer_keys
 from pdf_conversion import convert_docx_to_pdf,convert_office_to_pdf,ConversionError
 from exam_updates import class_grade,matches_grade,check_update,regrade_submission
-from exam_results import with_best_result,grade_attempt
+from exam_results import with_best_result,grade_attempt,attach_attempt_times
 from school_uploads import read_attachment
 from student_credentials import seal_password,open_password,hash_fingerprint
 
@@ -490,6 +490,9 @@ def create_app(config=None):
   res.headers['Content-Security-Policy']="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; frame-src 'self' blob:; base-uri 'self'; form-action 'self'"
   if request.path.startswith(('/api/exams/','/api/submissions/')) and request.args.get('preview')=='1' and res.mimetype=='application/pdf':
    res.headers['X-Frame-Options']='SAMEORIGIN';res.headers['Content-Security-Policy']="default-src 'none'; frame-ancestors 'self'"
+  if request.path=='/api/teacher-tools/function-lab' and res.status_code==200:
+   res.headers['X-Frame-Options']='SAMEORIGIN'
+   res.headers['Content-Security-Policy']="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-downloads"
   if request.path.startswith('/api/'):res.headers['Cache-Control']='no-store'
   return res
  @app.teardown_request
@@ -525,6 +528,11 @@ def create_app(config=None):
   try:converted=convert_office_to_pdf(raw,extension)
   except ConversionError as error:return jsonify(error=str(error)),400
   response=send_file(io.BytesIO(converted),mimetype='application/pdf',as_attachment=True,download_name='tai-lieu.pdf',max_age=0);response.headers['Cache-Control']='no-store';return response
+ @app.get('/api/teacher-tools/function-lab')
+ def teacher_function_lab():
+  require_member()
+  if g.member['role'] not in ['teacher','admin']:fail('Chỉ giáo viên và quản trị viên sử dụng tiện ích này.',403)
+  return app.response_class((Path(__file__).parent/'teacher_tools'/'function_lab.html').read_text(encoding='utf-8'),mimetype='text/html')
  @app.get('/healthz')
  def health():g.db.execute(select(1));return jsonify(status='ok')
  @app.get('/api/auth')
@@ -570,7 +578,7 @@ def create_app(config=None):
   if m['role']!='admin':ms=[x for x in ms if x['id']==m['id'] or any(c['teacher_id']==x['id'] for c in cs) or (m['role']=='teacher' and any(e['member_id']==x['id'] for e in es))]
   ms=[public_member(x) for x in ms]
   if m['role']!='admin':ms=[{k:v for k,v in x.items() if k not in ['email','username'] or x['id']==m['id']} for x in ms]
-  all_subs=rows(submissions);started_exams={c['assignment_id'] for c in rows(exam_clocks)} if m['role']!='student' else set();submitted_ids={sub['assignment_id'] for sub in all_subs if sub['member_id']==m['id']};rs=[];removed=[];active_enrollments={(e['course_id'],e['member_id']) for e in all_es}
+  all_subs=rows(submissions);clock_rows=rows(exam_clocks);started_exams={c['assignment_id'] for c in clock_rows} if m['role']!='student' else set();submitted_ids={sub['assignment_id'] for sub in all_subs if sub['member_id']==m['id']};rs=[];removed=[];active_enrollments={(e['course_id'],e['member_id']) for e in all_es}
   for r in sorted(all_rs,key=lambda x:x['created_at'],reverse=True):
    if r['kind'] in ['library','courseConfig'] or r['course_id'] not in ids:continue
    c=next(c for c in cs if c['id']==r['course_id']);d=json.loads(r['data'])
@@ -601,7 +609,7 @@ def create_app(config=None):
   for sub in all_subs:
    a=next((r for r in all_rs if r['id']==sub['assignment_id']),None)
    if a and a['course_id'] in ids and (m['role']!='teacher' or a['author_id']==m['id'] or may_teach(m,next(c for c in all_cs if c['id']==a['course_id']))) and (m['role']!='student' or matches_grade(json.loads(a['data']),next(c for c in all_cs if c['id']==a['course_id']))) and (a['course_id'],sub['member_id']) in active_enrollments and (m['role']!='student' or sub['member_id']==m['id']):
-    sd=with_best_result(json.loads(sub['data']),sub['created_at'])
+    sd=with_best_result(attach_attempt_times(json.loads(sub['data']),sub['created_at'],{c['attempt']:c['started_at'] for c in clock_rows if c['assignment_id']==sub['assignment_id'] and c['member_id']==sub['member_id']}),sub['created_at'])
     if m['role']=='student':
      for row in [sd]+sd.get('history',[])+([sd['bestAttempt']] if sd.get('bestAttempt') else []):
       if row.get('score') is None:row.pop('quizScore',None);row.pop('essayScore',None)
@@ -1040,6 +1048,9 @@ def create_app(config=None):
    if d.get('gradingMode')=='manual':data.update(score=None);data.pop('quizScore',None)
    if d.get('examCode'):data['examCode']=d['examCode']
    data['attemptCount']=(prev.get('attemptCount',1) if prev else 0)+1
+   submitted_at=datetime.fromtimestamp(time.time(),timezone.utc).isoformat();data['submittedAt']=submitted_at
+   clock=one(exam_clocks,and_(exam_clocks.c.assignment_id==r['id'],exam_clocks.c.member_id==m['id'],exam_clocks.c.attempt==data['attemptCount']))
+   attach_attempt_times(data,submitted_at,{data['attemptCount']:clock['started_at']} if clock else {})
    sid=previous['id'] if previous else uid();file_values=[];data['attachments']=[]
    for file in uploads:
     fid=uid();file_values.append(dict(id=fid,submission_id=sid,attempt_count=data['attemptCount'],**file))
@@ -1050,10 +1061,10 @@ def create_app(config=None):
     data['history']=history[-20:]
     data['attemptScores']=with_best_result(prev,previous['created_at'])['attemptScores']
     data['bestAttempt']=prev.get('bestAttempt')
-    with_best_result(data,now())
-    g.db.execute(update(submissions).where(submissions.c.id==previous['id']).values(data=json.dumps(data,ensure_ascii=False),created_at=now()))
+    with_best_result(data,submitted_at)
+    g.db.execute(update(submissions).where(submissions.c.id==previous['id']).values(data=json.dumps(data,ensure_ascii=False),created_at=submitted_at))
    else:
-    with_best_result(data,now());g.db.execute(insert(submissions).values(id=sid,assignment_id=r['id'],member_id=m['id'],data=json.dumps(data,ensure_ascii=False),created_at=now()))
+    with_best_result(data,submitted_at);g.db.execute(insert(submissions).values(id=sid,assignment_id=r['id'],member_id=m['id'],data=json.dumps(data,ensure_ascii=False),created_at=submitted_at))
    for file in file_values:g.db.execute(insert(submission_files).values(**file))
   elif a=='grade':
    sub=one(submissions,submissions.c.id==text(p.get('id')))

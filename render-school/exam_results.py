@@ -1,9 +1,10 @@
 """Keep the best exam result while retaining a compact score ledger for every attempt."""
 import copy
 import math
+from datetime import datetime,timezone
 
 DETAIL_FIELDS = ('answers', 'text', 'attachments', 'score', 'feedback', 'essayScore', 'quizScore', 'examCode',
-                 'attemptCount', 'submittedAt', 'gradedAt', 'gradedBy', 'summaryOnly')
+                 'attemptCount', 'submittedAt', 'startedAt', 'durationSeconds', 'gradedAt', 'gradedBy', 'summaryOnly')
 
 
 def valid_score(value):
@@ -35,7 +36,7 @@ def result_attempts(data, submitted_at):
 def with_best_result(data, submitted_at):
     attempts = result_attempts(data, submitted_at)
     data['attemptScores'] = [
-        {key: row.get(key) for key in ('attemptCount', 'score', 'submittedAt', 'gradedAt')}
+        {key: row.get(key) for key in ('attemptCount', 'score', 'submittedAt', 'startedAt', 'durationSeconds', 'gradedAt')}
         for _, row in sorted(attempts.items())
     ]
     scored = [row for row in attempts.values() if valid_score(row.get('score'))]
@@ -65,3 +66,17 @@ def grade_attempt(data, submitted_at, number, score, feedback, graded_at, graded
             if row.get('attemptCount') == number:
                 row.update(replacement)
     return with_best_result(data, submitted_at)
+
+
+def attach_attempt_times(data, submitted_at, clocks):
+    """Use recorded server clocks; never infer a start from the exam duration."""
+    for row in [data]+data.get('history',[])+data.get('attemptScores',[])+([data['bestAttempt']] if isinstance(data.get('bestAttempt'),dict) else []):
+        start=clocks.get(attempt_number(row.get('attemptCount')))
+        if start is not None:row['startedAt']=datetime.fromtimestamp(start,timezone.utc).isoformat()
+        end=row.get('submittedAt') or (submitted_at if row is data else None)
+        if row.get('startedAt') and end:
+            try:
+                seconds=datetime.fromisoformat(end.replace('Z','+00:00')).timestamp()-datetime.fromisoformat(row['startedAt'].replace('Z','+00:00')).timestamp()
+                row['durationSeconds']=int(seconds) if math.isfinite(seconds) and seconds>=0 else None
+            except (ValueError,TypeError,OverflowError):row['durationSeconds']=None
+    return data
