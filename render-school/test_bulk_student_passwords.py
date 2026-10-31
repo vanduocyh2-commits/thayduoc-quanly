@@ -64,3 +64,24 @@ def test_stale_review_and_failure_are_atomic(client,app,monkeypatch):
  assert login(s1,'student1','Changed123!').status_code==200
  assert login(s2,'student2').status_code==200
  with app.extensions['school_engine'].connect() as db:assert not db.execute(select(account_audits).where(account_audits.c.action=='password_bulk_issue')).first()
+
+def test_shared_password_is_scoped_salted_and_preserves_school_data(client,app):
+ from werkzeug.security import check_password_hash
+ t1,t2,s1,s2,ids,cs=prepare(client,app);before=state(client)
+ with app.extensions['school_engine'].connect() as db:staff_before={r['id']:r['password_hash'] for r in db.execute(select(members)).mappings() if r['role']!='student'}
+ listed=client.get('/api/student-accounts').json['students'];p=dict(confirmed=True,replaceExisting=True,passwordMode='shared',commonPassword='123456',students=[dict(id=s['id'],version=s['version']) for s in listed])
+ assert post(t1,'/api/student-accounts/bulk-passwords',p,token(t1)).status_code==403
+ result=post(client,'/api/student-accounts/bulk-passwords',p,token(client));assert result.status_code==200 and result.json['updated']==2 and '123456' not in result.text
+ for user,c in [('student1',s1),('student2',s2)]:assert login(c,user,'123456').status_code==200
+ with app.extensions['school_engine'].connect() as db:
+  rows=list(db.execute(select(members)).mappings());student_hashes=[r['password_hash'] for r in rows if r['role']=='student'];assert len(set(student_hashes))==2 and all(check_password_hash(h,'123456') for h in student_hashes)
+  assert staff_before=={r['id']:r['password_hash'] for r in rows if r['role']!='student'}
+  assert '123456' not in json.dumps([dict(r) for r in db.execute(select(account_audits)).mappings()])
+ for field in ['courses','enrollments','records','submissions','rosters']:assert before[field]==state(client)[field]
+ for user in ['student1','student2']:assert post(client,'/api/student-accounts/'+ids[user]+'/reveal',{},token(client)).json['password']=='123456'
+
+def test_shared_password_invalid_values_change_nothing(client,app):
+ t1,t2,s1,s2,ids,cs=prepare(client,app);listed=t1.get('/api/student-accounts').json['students'];p=dict(confirmed=True,replaceExisting=True,passwordMode='shared',students=[dict(id=s['id'],version=s['version']) for s in listed])
+ for value in [None,True,'12345','a'*201]:assert post(t1,'/api/student-accounts/bulk-passwords',{**p,'commonPassword':value},token(t1)).status_code==400
+ assert post(t1,'/api/student-accounts/bulk-passwords',{**p,'passwordMode':'unknown','commonPassword':'123456'},token(t1)).status_code==400
+ assert login(s1,'student1').status_code==200 and login(s2,'student2').status_code==200

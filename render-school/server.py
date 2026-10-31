@@ -673,14 +673,17 @@ def create_app(config=None):
    pupil=pupils.get(row['id'])
    if not pupil or pupil['role']!='student' or row['id'] not in allowed:fail('Phạm vi quản lý vừa thay đổi. Tải lại danh sách.',403)
    if not hmac.compare_digest(row['version'],student_account_version(pupil)):fail('Có tài khoản vừa được cập nhật ở phiên khác. Chưa cấp mật khẩu nào; tải lại danh sách rồi thử lại.',409)
+  password_mode=p.get('passwordMode','random');common=p.get('commonPassword')
+  if password_mode not in ['random','shared']:fail('Chọn mật khẩu ngẫu nhiên hoặc mật khẩu chung.')
+  if password_mode=='shared' and (not isinstance(common,str) or not 6<=len(common)<=200):fail('Mật khẩu chung cần từ 6 đến 200 ký tự.')
   batch=uid();used=set();updated=[];skipped=[];alphabet='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
   for mid in ids:
    if not replace and issued_password(pupils[mid]) is not None:skipped.append(mid);continue
-   plain=''.join(secrets.choice(alphabet) for _ in range(6))
-   while plain in used:plain=''.join(secrets.choice(alphabet) for _ in range(6))
+   plain=common if password_mode=='shared' else ''.join(secrets.choice(alphabet) for _ in range(6))
+   while password_mode=='random' and plain in used:plain=''.join(secrets.choice(alphabet) for _ in range(6))
    used.add(plain);hashed=password(plain)
    g.db.execute(update(members).where(members.c.id==mid).values(password_hash=hashed));g.db.execute(delete(sessions).where(sessions.c.member_id==mid));remember_issued_password(mid,plain,hashed)
-   account_audit(mid,'password_bulk_issue',{'batchId':batch,'replaceExisting':replace});updated.append(mid)
+   account_audit(mid,'password_bulk_issue',{'batchId':batch,'replaceExisting':replace,'passwordMode':password_mode});updated.append(mid)
   return jsonify(ok=True,updated=len(updated),skipped=len(skipped),updatedIds=updated)
  @app.post('/api/student-accounts/export')
  def export_student_accounts():
