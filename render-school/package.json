@@ -1,1 +1,1 @@
-{"private":true,"type":"module","scripts":{"build":"vite build"},"dependencies":{"katex":"^0.16.25","react":"19.2.6","react-dom":"19.2.6","react-markdown":"^10.1.0","rehype-katex":"^7.0.1","remark-math":"^6.0.0","typescript":"5.9.3","vite":"8.0.13"}}
+{"private":true,"type":"module","scripts":{"build":"vite build"},"dependencies":{"katex":"^0.16.25","pdfjs-dist":"^6.4.299","react":"19.2.6","react-dom":"19.2.6","react-markdown":"^10.1.0","rehype-katex":"^7.0.1","remark-math":"^6.0.0","typescript":"5.9.3","vite":"8.0.13"}}

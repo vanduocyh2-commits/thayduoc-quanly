@@ -1,3 +1,4 @@
+from assignment_reminders import normalize_reminder,process_reminders
 """Independent school portal for Render. No ChatGPT or Cloudflare dependency."""
 import os,json,re,hmac,secrets,hashlib,time,io,unicodedata,zipfile,math
 from collections import Counter
@@ -113,7 +114,10 @@ def validate_variants(data):
 
 def validate_exam_data(d):
  if d.get('type') not in ['essay','quiz','mixed']:fail('Hình thức chưa hợp lệ.')
+ if type(d.get('allowDownload',True)) is not bool:fail('Quyền tải đề chưa hợp lệ.')
  if d.get('due'):parse_date(d['due'])
+ try:d['reminder']=normalize_reminder(d.get('reminder'),d.get('opensAt'),d.get('due'),d.get('bankOnly',False))
+ except ValueError as error:fail(str(error))
  if d['type'] in ['quiz','mixed']:
   qs=d.get('questions')
   if not isinstance(qs,list) or not 1<=len(qs)<=100:fail('Cần từ 1 đến 100 câu hỏi.')
@@ -281,6 +285,8 @@ def create_app(config=None):
  elif url.startswith('postgresql://'):url='postgresql+psycopg://'+url[len('postgresql://'):]
  engine=create_engine(url,pool_pre_ping=True,**({'connect_args':{'check_same_thread':False}} if url.startswith('sqlite') else {'pool_size':5,'max_overflow':5}))
  app.extensions['school_engine']=engine
+ def run_assignment_reminders(db,now=None):return process_reminders(db,records,courses,enrollments,members,submissions,now)
+ app.extensions['assignment_reminders']=run_assignment_reminders
  if engine.dialect.name=='postgresql':
   with engine.begin() as conn:
    conn.execute(sql_text('SELECT pg_advisory_xact_lock(719246830)'))
@@ -420,7 +426,7 @@ def create_app(config=None):
   return c
  def copy_exam_data(data,rid):
   import copy
-  d=copy.deepcopy(data)
+  d=copy.deepcopy(data);d.pop('_reminderSent',None)
   if d.get('file'):d['file']['url']='/api/exams/'+rid+'/file'
   for v in d.get('variants',[]):
    if v.get('file'):v['file']['url']='/api/exams/'+rid+'/files/'+v['code']
@@ -539,7 +545,7 @@ def create_app(config=None):
   g.db.execute(delete(sessions).where(sessions.c.token_hash==g.auth['token_hash']));r=jsonify(ok=True);r.delete_cookie(cookie,path='/');return r
  @app.get('/api/school')
  def snapshot():
-  require_member();m=g.member;all_rs=rows(records);all_es=rows(enrollments);all_cs=rows(courses)
+  require_member();run_assignment_reminders(g.db);m=g.member;all_rs=rows(records);all_es=rows(enrollments);all_cs=rows(courses)
   for c in all_cs:
    config=next((json.loads(r['data']) for r in all_rs if r['kind']=='courseConfig' and r['course_id']==c['id']),{});c['grade']=config.get('grade') or class_grade(c)
   authored={r['course_id'] for r in all_rs if r['kind']=='assignment' and r['author_id']==m['id'] and not json.loads(r['data']).get('bankOnly')}
@@ -560,12 +566,14 @@ def create_app(config=None):
    if m['role']=='teacher' and not may_teach(m,c) and (r['kind']!='assignment' or r['author_id']!=m['id']):continue
    if m['role']=='student' and r['kind']=='assignment' and not matches_grade(d,c):continue
    if m['role']=='student':
+    if r['kind']=='message' and d.get('parentReminder'):continue
     if r['kind'] in ['attendance','grade','message'] and d.get('memberId') not in [m['id'],'all'] and r['author_id']!=m['id']:continue
     if r['kind']=='outline':
      if not d.get('published'):continue
      d.pop('requirements',None)
     if r['kind']=='assignment':
-     d=assigned_exam(d,r['id'],m['id']);d.pop('variants',None)
+     d=assigned_exam(d,r['id'],m['id']);d.pop('variants',None);d.pop('_reminderSent',None)
+     if d.get('file'):d['file']['downloadAllowed']=d.get('allowDownload',True)
      show_answers=d.get('allowViewAnswers',False) and r['id'] in submitted_ids
      if not show_answers:
       for field in ['answerNotes','answerGuide','resources']:d.pop(field,None)
@@ -846,6 +854,11 @@ def create_app(config=None):
     if file:data['file']={'name':file['name'],'mime':file['mime'],'size':file['size'],'url':'/api/exams/'+rid+'/file','preview':{'kind':'pdf'} if file['mime']=='application/pdf' else None}
    for field in ['closedAt','closedBy','bankArchivedAt','bankOnly','category']:data.pop(field,None)
    data.update(bankSourceId=root['id'],sourceAuthorId=root['author_id'],createdAt=now(),updatedAt=now(),assignedAt=now(),assignedBy=m['id'],maxAttempts=p.get('maxAttempts',1),opensAt=p.get('opensAt',''),due=p.get('due',''),gradingMode=p.get('gradingMode','auto'),subject=c['subject'])
+   try:data['reminder']=normalize_reminder(p.get('reminder',data.get('reminder')),data.get('opensAt'),data.get('due'))
+   except ValueError as error:fail(str(error))
+   if 'allowDownload' in p:
+    if type(p['allowDownload']) is not bool:fail('Quyền tải đề chưa hợp lệ.')
+    data['allowDownload']=p['allowDownload']
    configure_code_policy(data,p.get('codePolicy',data.get('codePolicy','random')),p.get('fixedExamCode',data.get('fixedExamCode','')))
    if data['gradingMode'] not in ['auto','semi','manual'] or type(data['maxAttempts']) is not int or not 0<=data['maxAttempts']<=100:fail('Cách chấm hoặc số lượt không hợp lệ.')
    for field in ['opensAt','due']:
@@ -883,10 +896,13 @@ def create_app(config=None):
     if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246850)'))
    assess(r);g.db.execute(select(courses).where(courses.c.id==r['course_id']).with_for_update()).first()
    r=g.db.execute(select(records).where(records.c.id==r['id']).with_for_update()).mappings().first();d=json.loads(r['data'])
-   for key in ['allowViewScore','allowViewAnswers']:
+   for key in ['allowViewScore','allowViewAnswers','allowDownload']:
     if key in p:
      if type(p[key]) is not bool:fail('Cấu hình công bố chưa hợp lệ.')
      d[key]=p[key]
+   if 'reminder' in p:
+    try:d['reminder']=normalize_reminder(p['reminder'],d.get('opensAt'),d.get('due'))
+    except ValueError as error:fail(str(error))
    if 'answerGuide' in p:d['answerGuide']=text(p['answerGuide'],30000,False);d['updatedAt']=now()
    if 'codePolicy' in p:
     policy=p['codePolicy'];fixed=p.get('fixedExamCode','')
@@ -910,7 +926,7 @@ def create_app(config=None):
     if d.get('gradingMode','auto') not in ['auto','semi','manual']:fail('Cách chấm không hợp lệ.')
     d.pop('bankSourceId',None);d.pop('bankArchivedAt',None)
     for key in ['closedAt','closedBy','resources','answerGuide']:d.pop(key,None)
-    for key,default in [('allowViewScore',True),('allowViewAnswers',False)]:
+    for key,default in [('allowViewScore',True),('allowViewAnswers',False),('allowDownload',True)]:
      if type(d.get(key,default)) is not bool:fail('Cấu hình công bố chưa hợp lệ.')
    if kind=='schedule':parse_date(d.get('at'));d['room']=text(d.get('room'))
    if kind in ['grade','attendance'] or (kind=='message' and m['role']!='student' and d.get('memberId')!='all'):
@@ -1034,8 +1050,8 @@ def create_app(config=None):
    r=one(records,and_(records.c.id==text(p.get('id')),records.c.kind=='message'))
    if not r:fail('Không tìm thấy trao đổi.')
    c=exam_read(r);d=json.loads(r['data'])
-   if may_teach(m,c) and r['author_id']!=m['id']:d['read']=True
-   elif m['role']=='student' and d.get('memberId') in [m['id'],'all'] and r['author_id']!=m['id']:d['readBy']=list(set(d.get('readBy',[])+[m['id']]))
+   if may_teach(m,c) and (r['author_id']!=m['id'] or d.get('parentReminder')):d['read']=True
+   elif m['role']=='student' and not d.get('parentReminder') and d.get('memberId') in [m['id'],'all'] and r['author_id']!=m['id']:d['readBy']=list(set(d.get('readBy',[])+[m['id']]))
    else:fail('Bạn không phải người nhận.',403)
    g.db.execute(update(records).where(records.c.id==r['id']).values(data=json.dumps(d,ensure_ascii=False)))
   elif a=='deleteRecord':
@@ -1212,7 +1228,9 @@ def create_app(config=None):
   if g.member['role']=='student' and assigned_exam(d,rid,g.member['id']).get('examCode')!=code:fail('Bạn không được tải mã đề khác.',403)
   f=one(exam_files,and_(exam_files.c.record_id==(d.get('bankSourceId') or rid),exam_files.c.code==code))
   if not f:fail('Không tìm thấy tệp mã đề.',404)
-  return send_file(io.BytesIO(f['content']),mimetype=f['mime'],download_name=f['name'],as_attachment=not(request.args.get('preview')=='1' and f['mime']=='application/pdf'),max_age=0)
+  inline=request.args.get('preview')=='1' and f['mime']=='application/pdf'
+  if g.member['role']=='student' and d.get('allowDownload',True) is False and not inline:fail('Giáo viên chỉ cho phép xem đề, không tải tệp.',403)
+  return send_file(io.BytesIO(f['content']),mimetype=f['mime'],download_name=f['name'],as_attachment=not inline,max_age=0)
  @app.get('/api/exams/key-template')
  def exam_key_template():
   from openpyxl import Workbook
@@ -1287,6 +1305,7 @@ def create_app(config=None):
   f=one(library_files,library_files.c.record_id==rid) or one(library_files,library_files.c.record_id==(d.get('bankSourceId') or rid))
   if not f:fail('Không tìm thấy tệp đề.',404)
   inline=request.args.get('preview')=='1' and f['mime']=='application/pdf'
+  if g.member['role']=='student' and d.get('allowDownload',True) is False and not inline:fail('Giáo viên chỉ cho phép xem đề, không tải tệp.',403)
   response=send_file(io.BytesIO(f['content']),mimetype=f['mime'],download_name=f['name'],as_attachment=not inline,max_age=0)
   return response
  @app.get('/')
