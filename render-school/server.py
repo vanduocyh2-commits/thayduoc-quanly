@@ -1,3 +1,4 @@
+from schema_startup import secure_postgres_tables
 from assignment_reminders import normalize_reminder,process_reminders
 """Independent school portal for Render. No ChatGPT or Cloudflare dependency."""
 import os,json,re,hmac,secrets,hashlib,time,io,unicodedata,zipfile,math
@@ -292,9 +293,7 @@ def create_app(config=None):
   with engine.begin() as conn:
    conn.execute(sql_text('SELECT pg_advisory_xact_lock(719246830)'))
    metadata.create_all(conn)
-   for table in metadata.sorted_tables:
-    conn.execute(sql_text(f'ALTER TABLE {table.name} ENABLE ROW LEVEL SECURITY'))
-    conn.execute(sql_text(f'REVOKE ALL ON TABLE {table.name} FROM PUBLIC'))
+   secure_postgres_tables(conn,metadata)
  else:metadata.create_all(engine)
  app.wsgi_app=ProxyFix(app.wsgi_app,x_for=1,x_proto=1,x_host=0)
  cookie='school_session'
