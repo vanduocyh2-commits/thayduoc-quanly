@@ -556,6 +556,9 @@ def create_app(config=None):
   if request.path=='/api/teacher-tools/function-lab' and res.status_code==200:
    res.headers['X-Frame-Options']='SAMEORIGIN'
    res.headers['Content-Security-Policy']="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-downloads"
+  if request.path=='/so-ke-hoach' and res.status_code==200:
+   res.headers['X-Frame-Options']='SAMEORIGIN'
+   res.headers['Content-Security-Policy']="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; worker-src 'self' blob: https://cdnjs.cloudflare.com; frame-ancestors 'self'; frame-src 'self' blob:; base-uri 'self'; form-action 'self'"
   if request.path.startswith('/api/'):res.headers['Cache-Control']='no-store'
   return res
  @app.teardown_request
