@@ -1,0 +1,24 @@
+name: School question bank tests
+
+on:
+  push:
+    branches:
+      - test/question-bank-ci-20261101
+  workflow_dispatch:
+
+jobs:
+  question-bank:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r render-school/requirements.txt pytest
+      - name: Run school question bank tests
+        env:
+          PYTHONPATH: render-school
+        run: pytest -q render-school/test_question_bank.py
