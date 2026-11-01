@@ -441,7 +441,7 @@ def create_app(config=None):
    q['chapterOrder']=max(1,min(999,order_number(q.get('chapterOrder') or data.get('chapterOrder'))))
    q['lessonOrder']=max(1,min(999,order_number(q.get('lessonOrder') or data.get('lessonOrder'))))
    required=[q['grade'],q['subject'],q['curriculum'],q['chapter'],q['lesson']]
-   if require_classification and q['grade'] not in [str(i) for i in range(1,13)]:fail('Khối của từng câu hỏi phải từ lớp 1 đến lớp 12.')
+   if require_classification and q['grade'] not in ['10','11','12']:fail('Ngân hàng câu hỏi của website nhà trường chỉ nhận khối THPT: lớp 10, 11 và 12.')
    if require_classification and not all(required):fail('Mỗi câu hỏi cần đủ khối, môn học, chương trình, chương và bài trước khi lưu.')
    if not all(required) or not str(q.get('text') or '').strip():continue
    if not q.get('level') and require_classification:fail('Mỗi câu hỏi cần chọn mức độ nhận thức.')
@@ -702,7 +702,9 @@ def create_app(config=None):
   question_bank=[]
   if m['role'] in ['admin','teacher']:
    for row in sorted((r for r in all_rs if r['kind']=='questionBank'),key=lambda x:x['created_at'],reverse=True):
-    bank_data=json.loads(row['data']);course_row=next((x for x in all_cs if x['id']==row['course_id']),None)
+    bank_data=json.loads(row['data'])
+    if str(bank_data.get('grade') or '') not in ['10','11','12']:continue
+    course_row=next((x for x in all_cs if x['id']==row['course_id']),None)
     question_bank.append({**row,'data':bank_data,'course_label':(course_row['name']+' · '+course_row['subject']) if course_row else 'Lớp / môn đã xóa','author_name':next((x['name'] for x in all_ms if x['id']==row['author_id']),'Giáo viên')})
   return jsonify(questionBank=question_bank,classRequests=[{**r,'data':json.loads(r['data'])} for r in rows(class_requests) if m['role']=='admin' or m['role']=='teacher' and r['author_id']==m['id']],teacherRegistrations=[{k:r[k] for k in ['id','username','name','email','status','created_at']} for r in rows(teacher_registrations) if r['status']=='pending'] if m['role']=='admin' else [],assignmentCourses=all_cs if m['role']!='student' else [],me=public_member(dict(m)),removedStudents=removed,members=ms,courses=cs,enrollments=es,records=rs,submissions=ss,library=lib,rosters=[{**r,'data':json.loads(r['data'])} for r in rows(rosters) if m['role']=='admin' or (m['role']=='teacher' and r['author_id']==m['id'] and r['course_id'] in ids)])
  @app.get('/api/grades/export')

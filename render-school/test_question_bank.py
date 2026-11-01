@@ -78,3 +78,12 @@ def test_school_question_bank_keeps_program_as_part_of_dedup_key(client,app):
  create_classified_exam(t1,cs['10A'],'Đề chương trình khác',bank_only=True,questions=[question(curriculum='Chương trình thử nghiệm')])
  programs={row['data']['curriculum'] for row in bank_rows(t1)}
  assert programs=={'GDPT 2018','Chương trình thử nghiệm'}
+
+
+def test_school_question_bank_rejects_non_high_school_grades(client,app):
+ t1,t2,pupil,cs,ms=prepare(client,app)
+ invalid=question();invalid['grade']='9'
+ data={'title':'Đề ngoài cấp THPT','body':'Bài kiểm tra','grade':'9','type':'quiz','composed':True,'questionBankVersion':1,'bankOnly':True,'gradingMode':'auto','maxAttempts':0,'questions':[invalid],'essays':[]}
+ result=action(t1,{'action':'record','kind':'assignment','courseId':cs['10A'],'data':data})
+ assert result.status_code==400,result.json
+ assert not bank_rows(t1)
