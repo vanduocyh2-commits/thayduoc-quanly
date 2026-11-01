@@ -427,6 +427,9 @@ def create_app(config=None):
   all_questions=(data.get('questions') or [])+(data.get('essays') or [])
   existing=[r for r in rows(records) if r['kind']=='questionBank']
   def atom(value):return normalized(' '.join(str(value or '').split()))
+  def order_number(value):
+   try:return max(1,min(999,int(value or 1)))
+   except (ValueError,TypeError):fail('Thứ tự chương và bài phải là số nguyên từ 1 đến 999.')
   for q in all_questions:
    if not isinstance(q,dict):continue
    q['grade']=str(q.get('grade') or data.get('grade') or course.get('grade') or '').strip()
@@ -435,9 +438,10 @@ def create_app(config=None):
    q['textbook']=text(str(q.get('textbook') or data.get('textbook') or ''),160,False)
    q['chapter']=text(str(q.get('chapter') or data.get('chapter') or ''),160,False)
    q['lesson']=text(str(q.get('lesson') or data.get('lesson') or ''),160,False)
-   q['chapterOrder']=max(1,min(999,int(q.get('chapterOrder') or data.get('chapterOrder') or 1)))
-   q['lessonOrder']=max(1,min(999,int(q.get('lessonOrder') or data.get('lessonOrder') or 1)))
+   q['chapterOrder']=max(1,min(999,order_number(q.get('chapterOrder') or data.get('chapterOrder'))))
+   q['lessonOrder']=max(1,min(999,order_number(q.get('lessonOrder') or data.get('lessonOrder'))))
    required=[q['grade'],q['subject'],q['curriculum'],q['chapter'],q['lesson']]
+   if require_classification and q['grade'] not in [str(i) for i in range(1,13)]:fail('Khối của từng câu hỏi phải từ lớp 1 đến lớp 12.')
    if require_classification and not all(required):fail('Mỗi câu hỏi cần đủ khối, môn học, chương trình, chương và bài trước khi lưu.')
    if not all(required) or not str(q.get('text') or '').strip():continue
    if not q.get('level') and require_classification:fail('Mỗi câu hỏi cần chọn mức độ nhận thức.')
