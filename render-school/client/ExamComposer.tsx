@@ -26,7 +26,7 @@ const active=variants[variantIndex],viewQs=active?[...active.questions,...active
 const [importText,setImportText]=useState(''),[subjectCode,setSubjectCode]=useState('00');
 const total=sum(qs.map(q=>q.points)),planPoints=sum(rows.map(r=>sum(r.counts)*Number(r.points))),planCount=sum(rows.map(r=>sum(r.counts))),planned=sum(rows.map(r=>r.count)),ratioTotal=sum(ratios),matrix=actualMatrix(qs),course=courses.find((c:any)=>c.id===cid);
 function rowChange(id:string,key:string,value:any){setRows(rows.map(r=>r.id===id?{...r,[key]:value}:r))}
-function change(i:number,key:string,value:any){setQs(qs.map((q,j)=>j===i?{...q,[key]:value}:q))}
+function change(i:number,key:string|Record<string,any>,value?:any){const patch=typeof key==='object'?key:{[key]:value};setQs(old=>old.map((q,j)=>j===i?{...q,...patch}:q))}
 function distribute(){try{setRows(rows.map(r=>r.locked?r:{...r,counts:allocate(r.count,ratios)}));notify('Đã phân bố số câu theo tỷ lệ; các hàng được giữ nguyên không thay đổi.')}catch(e:any){notify(e.message)}}
 function addBankQuestions(items:any[]){
  const existing=new Set(qs.map(q=>q.sourceBankId||q.bankId).filter(Boolean));
