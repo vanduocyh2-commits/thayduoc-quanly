@@ -11,7 +11,7 @@ export default function QuestionBankPicker({entries=[],course,grade,currentUser,
  const all=useMemo(()=>entries.map((row:any)=>{
   const q={...(row?.data||row)};
   const id=String(row?.id||q.bankId||q.id||'');
-  return {...q,id,bankId:id,ownerId:row?.author_id||q.ownerId||'',courseLabel:row?.course_label||'',authorName:row?.author_name||''};
+  return {...q,data:q,id,bankId:id,ownerId:row?.author_id||q.ownerId||'',author_id:row?.author_id||q.author_id||'',courseLabel:row?.course_label||'',authorName:row?.author_name||''};
  }).filter((q:any)=>q.id&&clean(q.text)),[entries]);
  const values=(key:string)=>[...new Set(all.map((q:any)=>clean(q[key])).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'vi',{numeric:true}));
  const filtered=all.filter((q:any)=>!filters.grade||String(q.grade||'')===filters.grade)
