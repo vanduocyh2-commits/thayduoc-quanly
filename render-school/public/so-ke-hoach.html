@@ -789,32 +789,6 @@
 </head>
 <body>
 
-  <!-- POPUP BẢN QUYỀN MÁY -->
-  <div id="licenseModal" class="license-overlay" style="display: none;">
-    <div class="license-card">
-      <div class="license-title">🔒 KÍCH HOẠT BẢN QUYỀN MÁY</div>
-      <div class="license-desc">Phần mềm được cấp phép sử dụng riêng cho máy tính này. Vui lòng gửi <b>Mã thiết bị</b> bên dưới cho tác giả để nhận <b>Mã bản quyền kích hoạt</b>.</div>
-      
-      <div class="device-id-box">
-        <span class="device-id-text" id="displayDeviceId">ĐANG TẠO MÃ...</span>
-        <button class="btn-copy-id" onclick="copyDeviceId()">Sao chép mã</button>
-      </div>
-
-      <div class="license-input-box">
-        <label>Nhập Mã Bản Quyền (License Key):</label>
-        <input type="text" id="inputLicenseKey" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="32">
-      </div>
-
-      <div id="licenseErrorMsg" style="display:none; color: #dc2626; font-size: 12.5px; font-weight: bold; margin-bottom: 12px;"></div>
-
-      <button class="btn-activate" onclick="handleActivateLicense()">KÍCH HOẠT PHẦN MỀM</button>
-      <button id="btnCloseLicenseModal" type="button" onclick="closeLicenseModal()" style="width: 100%; margin-top: 8px; background: #f1f5f9; color: #475569; border: 1.5px solid #cbd5e1; padding: 9px; border-radius: 6px; font-size: 13.5px; font-weight: bold; cursor: pointer;">Đóng lại / Tiếp tục dùng thử</button>
-      <div class="license-footer-note">
-        📞 Liên hệ Zalo/SĐT tác giả: <b>0988.739.427</b> để nhận mã kích hoạt.
-      </div>
-    </div>
-  </div>
-
   <!-- POPUP ĐĂNG NHẬP -->
   <div id="authModal" class="auth-overlay" style="display: none;">
     <div class="auth-box">
@@ -972,7 +946,6 @@
       <div class="account-badge-box">
         <span>👤</span>
         <span class="account-name-tag" id="currentAccountDisplay">Chưa đăng nhập</span>
-        <button id="btnManualActivation" class="btn-pass-change" style="background:#fef3c7; color:#b45309; border-color:#fde68a;" onclick="openActivationModalManually()" title="Kích hoạt bản quyền chính thức">🔑 Bản quyền</button>
         <button class="btn-pass-change" onclick="openChangeAccountModal()" title="Đổi tên đăng nhập, tên giáo viên hoặc mật khẩu">⚙️ Đổi MK</button>
         <button class="btn-logout" onclick="logoutUser()" title="Đăng xuất để khóa bảo vệ sổ">Thoát 🔒</button>
       </div>
@@ -1060,187 +1033,13 @@
     });
 
     /* =========================================================================
-       2. BẢN QUYỀN MÁY & DÙNG THỬ
+       2. BỎ KHÓA BẢN QUYỀN MÁY
+       Sổ kế hoạch được sử dụng trực tiếp; đăng nhập tài khoản giáo viên vẫn giữ nguyên.
        ========================================================================= */
-    const MASTER_SALT = "PHAN_MEM_SO_GIANG_DAY_2026_SECURE_SALT_DUOCBV";
-    const TRIAL_EXPIRE_DATE = new Date('2026-10-23T23:59:59').getTime();
-
-    async function sha256(message) {
-      const msgBuffer = new TextEncoder().encode(message);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-
-    async function generateMachineFingerprint() {
-      const nav = window.navigator;
-      const scr = window.screen;
-      let canvasFingerprint = '';
-      try {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        ctx.textBaseline = "top";
-        ctx.font = "14px 'Arial'";
-        ctx.textBaseline = "alphabetic";
-        ctx.fillStyle = "#f60";
-        ctx.fillRect(125, 1, 62, 20);
-        ctx.fillStyle = "#069";
-        ctx.fillText("SoGiangDayLock_2026", 2, 15);
-        ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
-        ctx.fillText("SoGiangDayLock_2026", 4, 17);
-        canvasFingerprint = canvas.toDataURL();
-      } catch (e) {
-        canvasFingerprint = 'no-canvas';
-      }
-
-      const rawMachineData = [
-        nav.userAgent,
-        scr.width + 'x' + scr.height,
-        scr.colorDepth,
-        Intl.DateTimeFormat().resolvedOptions().timeZone || '',
-        nav.hardwareConcurrency || 4,
-        canvasFingerprint
-      ].join('###');
-
-      const fullHash = await sha256(rawMachineData);
-      const d1 = fullHash.substring(0, 4).toUpperCase();
-      const d2 = fullHash.substring(4, 8).toUpperCase();
-      const d3 = fullHash.substring(8, 12).toUpperCase();
-      return `DV-${d1}-${d2}-${d3}`;
-    }
-
-    async function calculateLicenseKey(deviceId) {
-      const combined = `${MASTER_SALT}___${deviceId.trim().toUpperCase()}`;
-      const hash = await sha256(combined);
-      const p1 = hash.substring(0, 4).toUpperCase();
-      const p2 = hash.substring(4, 8).toUpperCase();
-      const p3 = hash.substring(8, 12).toUpperCase();
-      const p4 = hash.substring(12, 16).toUpperCase();
-      return `${p1}-${p2}-${p3}-${p4}`;
-    }
-
-    let currentMachineId = '';
-    let isOfficiallyActivated = false;
-
-    async function checkMachineLicense() {
-      currentMachineId = await generateMachineFingerprint();
-      const savedKey = (localStorage.getItem('sys_device_license_key') || '').trim().toUpperCase();
-      const expectedKey = await calculateLicenseKey(currentMachineId);
-
-      if (savedKey && savedKey === expectedKey) {
-        isOfficiallyActivated = true;
-        document.getElementById('licenseModal').style.display = 'none';
-        const btnAct = document.getElementById('btnManualActivation');
-        if (btnAct) btnAct.style.display = 'none';
-        checkExistingLoginSession();
-        return;
-      }
-
-      const now = Date.now();
-      const lastRun = parseInt(localStorage.getItem('sys_last_recorded_time') || '0');
-      if (lastRun > 0 && now < (lastRun - 3600000)) {
-        alert('⚠️ PHÁT HIỆN GIAN LẬN: Ngày giờ hệ thống đã bị chỉnh lùi về quá khứ! Phần mềm bị khóa.');
-        showActivationModal('Phát hiện gian lận ngày giờ hệ thống!');
-        return;
-      }
-      localStorage.setItem('sys_last_recorded_time', now.toString());
-
-      if (now <= TRIAL_EXPIRE_DATE) {
-        const daysLeft = Math.ceil((TRIAL_EXPIRE_DATE - now) / (1000 * 60 * 60 * 24));
-        document.getElementById('licenseModal').style.display = 'none';
-        
-        setTimeout(() => {
-          const status = document.getElementById('statusText');
-          if (status) {
-            status.innerHTML = `🎁 <span style="color:#b45309; font-weight:bold;">Bản dùng thử (Còn ${daysLeft} ngày)</span>`;
-          }
-        }, 1000);
-
-        checkExistingLoginSession();
-      } else {
-        showActivationModal('ĐÃ HẾT THỜI GIAN 1 THÁNG DÙNG THỬ MIỄN PHÍ!');
-      }
-    }
-
-    function showActivationModal(reasonText) {
-      document.getElementById('displayDeviceId').innerText = currentMachineId;
-      const descEl = document.querySelector('.license-desc');
-      if (descEl) {
-        descEl.innerHTML = `<span style="color:#dc2626; font-weight:bold; font-size:14px;">${reasonText}</span><br>Vui lòng gửi <b>Mã thiết bị</b> bên dưới cho tác giả để nhận <b>Mã bản quyền kích hoạt</b>.`;
-      }
-      
-      const closeBtn = document.getElementById('btnCloseLicenseModal');
-      if (closeBtn) closeBtn.style.display = 'none';
-      document.getElementById('licenseModal').style.display = 'flex';
-    }
-
-    function closeLicenseModal() {
-      const now = Date.now();
-      if (!isOfficiallyActivated && now > TRIAL_EXPIRE_DATE) {
-        alert('⚠ Đã hết thời gian 1 tháng dùng thử miễn phí! Vui lòng nhập Mã bản quyền để tiếp tục sử dụng.');
-        return;
-      }
-      document.getElementById('licenseModal').style.display = 'none';
+    function checkMachineLicense() {
+      const btnAct = document.getElementById('btnManualActivation');
+      if (btnAct) btnAct.remove();
       checkExistingLoginSession();
-    }
-
-    async function openActivationModalManually() {
-      currentMachineId = await generateMachineFingerprint();
-      document.getElementById('displayDeviceId').innerText = currentMachineId;
-      document.getElementById('inputLicenseKey').value = '';
-      document.getElementById('licenseErrorMsg').style.display = 'none';
-
-      const closeBtn = document.getElementById('btnCloseLicenseModal');
-      if (closeBtn) closeBtn.style.display = 'block';
-
-      const descEl = document.querySelector('.license-desc');
-      if (descEl) {
-        if (isOfficiallyActivated) {
-          descEl.innerHTML = `<span style="color:#15803d; font-weight:bold;">✅ Thiết bị này ĐÃ ĐƯỢC KÍCH HOẠT BẢN QUYỀN VĨNH VIỄN!</span>`;
-        } else {
-          const now = Date.now();
-          const daysLeft = Math.max(0, Math.ceil((TRIAL_EXPIRE_DATE - now) / (1000 * 60 * 60 * 24)));
-          descEl.innerHTML = `Bạn đang trong thời gian dùng thử (còn <b>${daysLeft} ngày</b>). Bạn có thể kích hoạt bản quyền vĩnh viễn trước tại đây:`;
-        }
-      }
-      document.getElementById('licenseModal').style.display = 'flex';
-    }
-
-    function copyDeviceId() {
-      navigator.clipboard.writeText(currentMachineId).then(() => {
-        alert(`Đã sao chép mã thiết bị: ${currentMachineId}\nHãy gửi mã này cho tác giả để nhận mã kích hoạt.`);
-      }).catch(() => {
-        prompt('Sao chép mã máy sau:', currentMachineId);
-      });
-    }
-
-    async function handleActivateLicense() {
-      const input = document.getElementById('inputLicenseKey').value.trim().toUpperCase();
-      const err = document.getElementById('licenseErrorMsg');
-      const expectedKey = await calculateLicenseKey(currentMachineId);
-
-      if (!input) {
-        err.innerText = 'Vui lòng nhập Mã bản quyền!';
-        err.style.display = 'block';
-        return;
-      }
-
-      if (input === expectedKey) {
-        localStorage.setItem('sys_device_license_key', input);
-        isOfficiallyActivated = true;
-        alert('🎉 KÍCH HOẠT THÀNH CÔNG!\nPhần mềm đã được cấp bản quyền vĩnh viễn trên máy tính này.');
-        document.getElementById('licenseModal').style.display = 'none';
-        const btnAct = document.getElementById('btnManualActivation');
-        if (btnAct) btnAct.style.display = 'none';
-        const status = document.getElementById('statusText');
-        if (status) {
-          status.innerHTML = `⭐ <span style="color:#15803d; font-weight:bold;">Bản quyền vĩnh viễn</span>`;
-        }
-        checkExistingLoginSession();
-      } else {
-        err.innerText = 'Mã kích hoạt không đúng hoặc không khớp với mã thiết bị này!';
-        err.style.display = 'block';
-      }
     }
 
     /* =========================================================================
