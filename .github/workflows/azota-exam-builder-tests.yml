@@ -1,0 +1,27 @@
+name: Azota-style exam builder tests
+
+on:
+  push:
+    branches:
+      - feature/azota-style-exam-builder
+  pull_request:
+    branches:
+      - website-o-nha-doc-lap
+  workflow_dispatch:
+
+jobs:
+  question-bank:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r render-school/requirements.txt pytest
+      - name: Run question bank regression tests
+        env:
+          PYTHONPATH: render-school
+        run: pytest -q render-school/test_question_bank.py
