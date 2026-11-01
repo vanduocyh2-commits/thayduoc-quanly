@@ -24,10 +24,13 @@ export default function QuestionBankPicker({entries=[],course,grade,currentUser,
   .filter((q:any)=>!filters.level||clean(q.level)===filters.level)
   .filter((q:any)=>!filters.type||clean(q.type)===filters.type)
   .filter((q:any)=>!filters.search||[q.text,q.topic,q.outcome,q.subject,q.curriculum,q.textbook,q.chapter,q.lesson].join(' ').toLocaleLowerCase('vi').includes(filters.search.toLocaleLowerCase('vi')))
-  .slice(0,100);
+  .slice(0,200);
  const set=(key:string,value:string)=>{setFilters((old:any)=>({...old,[key]:value}));setSelected([])};
  const select=(key:string,label:string,options:string[])=><label key={key}>{label}<select value={filters[key]} onChange={e=>set(key,e.target.value)}><option value="">Tất cả</option>{options.map(v=><option key={v} value={v}>{v}</option>)}</select></label>;
  const typeSelect=<label>Dạng câu hỏi<select value={filters.type} onChange={e=>set('type',e.target.value)}><option value="">Tất cả</option>{Object.entries(TYPES).map(([key,label])=><option key={key} value={key}>{label as string}</option>)}</select></label>;
+ const visibleIds=filtered.map((q:any)=>q.id);
+ const allVisibleSelected=visibleIds.length>0&&visibleIds.every((id:string)=>selected.includes(id));
+ const toggleVisible=()=>setSelected(old=>allVisibleSelected?old.filter(id=>!visibleIds.includes(id)):[...new Set([...old,...visibleIds])]);
  const add=(items:any[])=>{
   const picked=items.filter(Boolean);
   if(!picked.length)return;
@@ -51,7 +54,8 @@ export default function QuestionBankPicker({entries=[],course,grade,currentUser,
    </div>
    <div className="toolbar">
     <button type="button" className="secondary mini" onClick={clear}>Xóa bộ lọc</button>
-    <span className="muted">{filtered.length} câu phù hợp{all.length>100?' · Đang hiển thị tối đa 100 câu':''}</span>
+    <span className="muted">{filtered.length} câu phù hợp · Đã chọn {selected.length} câu{all.length>200?' · Đang hiển thị tối đa 200 câu':''}</span>
+    <button type="button" className="secondary" disabled={!filtered.length} onClick={toggleVisible}>{allVisibleSelected?'Bỏ chọn các câu đang lọc':'Chọn tất cả câu đang lọc'}</button>
     <button type="button" disabled={!selected.length} onClick={()=>add(all.filter((q:any)=>selected.includes(q.id)))}>＋ Đưa {selected.length} câu đã chọn vào đề</button>
    </div>
    <div className="question-bank-picker-list">
