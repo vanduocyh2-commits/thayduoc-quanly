@@ -422,6 +422,53 @@ def create_app(config=None):
   c=get_course(cid)
   if g.member['role'] not in ['teacher','admin']:fail('Chỉ giáo viên được giao đề.',403)
   return c
+ def sync_exam_questions_to_bank(cid,author_id,exam_id,exam_title,data,require_classification=False):
+  course=get_course(cid);subject=course['subject']
+  all_questions=(data.get('questions') or [])+(data.get('essays') or [])
+  existing=[r for r in rows(records) if r['kind']=='questionBank']
+  def atom(value):return normalized(' '.join(str(value or '').split()))
+  def order_number(value):
+   try:return max(1,min(999,int(value or 1)))
+   except (ValueError,TypeError):fail('Thứ tự chương và bài phải là số nguyên từ 1 đến 999.')
+  for q in all_questions:
+   if not isinstance(q,dict):continue
+   q['grade']=str(q.get('grade') or data.get('grade') or course.get('grade') or '').strip()
+   q['subject']=text(str(q.get('subject') or data.get('subject') or subject),120)
+   q['curriculum']=text(str(q.get('curriculum') or data.get('curriculum') or 'GDPT 2018'),160)
+   q['textbook']=text(str(q.get('textbook') or data.get('textbook') or ''),160,False)
+   q['chapter']=text(str(q.get('chapter') or data.get('chapter') or ''),160,False)
+   q['lesson']=text(str(q.get('lesson') or data.get('lesson') or ''),160,False)
+   q['chapterOrder']=max(1,min(999,order_number(q.get('chapterOrder') or data.get('chapterOrder'))))
+   q['lessonOrder']=max(1,min(999,order_number(q.get('lessonOrder') or data.get('lessonOrder'))))
+   required=[q['grade'],q['subject'],q['curriculum'],q['chapter'],q['lesson']]
+   if require_classification and q['grade'] not in [str(i) for i in range(1,13)]:fail('Khối của từng câu hỏi phải từ lớp 1 đến lớp 12.')
+   if require_classification and not all(required):fail('Mỗi câu hỏi cần đủ khối, môn học, chương trình, chương và bài trước khi lưu.')
+   if not all(required) or not str(q.get('text') or '').strip():continue
+   if not q.get('level') and require_classification:fail('Mỗi câu hỏi cần chọn mức độ nhận thức.')
+   qtype=q.get('type') or ('essay' if q in (data.get('essays') or []) else 'quiz')
+   key_data={'grade':atom(q['grade']),'subject':atom(q['subject']),'curriculum':atom(q['curriculum']),'textbook':atom(q['textbook']),'chapter':atom(q['chapter']),'lesson':atom(q['lesson']),'type':atom(qtype),'text':atom(q.get('text')),'answers':[atom(v) for v in (q.get('answers') or [])],'correct':q.get('correct',q.get('answer',''))}
+   bank_key=json.dumps(key_data,sort_keys=True,ensure_ascii=False)
+   old=None;bank_id=str(q.get('bankId') or '')
+   if bank_id:
+    candidate=one(records,and_(records.c.id==bank_id,records.c.kind=='questionBank'))
+    if candidate and candidate['author_id']==author_id:old=candidate
+   if old is None:
+    for candidate in existing:
+     candidate_data=json.loads(candidate['data'])
+     if candidate_data.get('_bankKey')==bank_key:
+      old=candidate
+      break
+   stamp=now()
+   if old:
+    bank_id=old['id'];old_data=json.loads(old['data'])
+    if old['author_id']==author_id:
+     entry={**old_data,**q,'type':qtype,'id':bank_id,'bankId':bank_id,'ownerId':author_id,'sourceExamId':exam_id,'sourceExamTitle':exam_title,'_bankKey':bank_key,'createdAt':old_data.get('createdAt') or stamp,'updatedAt':stamp}
+     g.db.execute(update(records).where(records.c.id==bank_id).values(data=json.dumps(entry,ensure_ascii=False)))
+    q['bankId']=bank_id
+   else:
+    bank_id=uid();entry={**q,'type':qtype,'id':bank_id,'bankId':bank_id,'ownerId':author_id,'sourceExamId':exam_id,'sourceExamTitle':exam_title,'_bankKey':bank_key,'createdAt':stamp,'updatedAt':stamp}
+    row={'id':bank_id,'course_id':cid,'kind':'questionBank','author_id':author_id,'data':json.dumps(entry,ensure_ascii=False),'created_at':stamp}
+    g.db.execute(insert(records).values(**row));existing.append(row);q['bankId']=bank_id
  def assess(r):
   c=get_course(r['course_id'])
   if not may_teach(g.member,c) and not (g.member['role']=='teacher' and r['author_id']==g.member['id']):fail('Bạn không có quyền quản lý bài giao này.',403)
@@ -596,7 +643,7 @@ def create_app(config=None):
   if m['role']!='admin':ms=[{k:v for k,v in x.items() if k not in ['email','username'] or x['id']==m['id']} for x in ms]
   all_subs=rows(submissions);clock_rows=rows(exam_clocks);started_exams={c['assignment_id'] for c in clock_rows} if m['role']!='student' else set();submitted_ids={sub['assignment_id'] for sub in all_subs if sub['member_id']==m['id']};rs=[];removed=[];active_enrollments={(e['course_id'],e['member_id']) for e in all_es}
   for r in sorted(all_rs,key=lambda x:x['created_at'],reverse=True):
-   if r['kind'] in ['library','courseConfig'] or r['course_id'] not in ids:continue
+   if r['kind'] in ['library','courseConfig','questionBank'] or r['course_id'] not in ids:continue
    c=next(c for c in cs if c['id']==r['course_id']);d=json.loads(r['data'])
    if r['kind']=='assignment' and d.get('bankOnly'):continue
    if r['kind']=='rosterRemoval':
@@ -652,7 +699,12 @@ def create_app(config=None):
    c=next((c for c in all_cs if c['id']==r['course_id']),None)
    if c:d['subject']=c['subject']
    lib.append({**r,'data':d,'course_label':(c['name']+' · '+c['subject']) if c else 'Lớp / môn đã xóa','author_name':next((x['name'] for x in all_ms if x['id']==r['author_id']),'Giáo viên')})
-  return jsonify(classRequests=[{**r,'data':json.loads(r['data'])} for r in rows(class_requests) if m['role']=='admin' or m['role']=='teacher' and r['author_id']==m['id']],teacherRegistrations=[{k:r[k] for k in ['id','username','name','email','status','created_at']} for r in rows(teacher_registrations) if r['status']=='pending'] if m['role']=='admin' else [],assignmentCourses=all_cs if m['role']!='student' else [],me=public_member(dict(m)),removedStudents=removed,members=ms,courses=cs,enrollments=es,records=rs,submissions=ss,library=lib,rosters=[{**r,'data':json.loads(r['data'])} for r in rows(rosters) if m['role']=='admin' or (m['role']=='teacher' and r['author_id']==m['id'] and r['course_id'] in ids)])
+  question_bank=[]
+  if m['role'] in ['admin','teacher']:
+   for row in sorted((r for r in all_rs if r['kind']=='questionBank'),key=lambda x:x['created_at'],reverse=True):
+    bank_data=json.loads(row['data']);course_row=next((x for x in all_cs if x['id']==row['course_id']),None)
+    question_bank.append({**row,'data':bank_data,'course_label':(course_row['name']+' · '+course_row['subject']) if course_row else 'Lớp / môn đã xóa','author_name':next((x['name'] for x in all_ms if x['id']==row['author_id']),'Giáo viên')})
+  return jsonify(questionBank=question_bank,classRequests=[{**r,'data':json.loads(r['data'])} for r in rows(class_requests) if m['role']=='admin' or m['role']=='teacher' and r['author_id']==m['id']],teacherRegistrations=[{k:r[k] for k in ['id','username','name','email','status','created_at']} for r in rows(teacher_registrations) if r['status']=='pending'] if m['role']=='admin' else [],assignmentCourses=all_cs if m['role']!='student' else [],me=public_member(dict(m)),removedStudents=removed,members=ms,courses=cs,enrollments=es,records=rs,submissions=ss,library=lib,rosters=[{**r,'data':json.loads(r['data'])} for r in rows(rosters) if m['role']=='admin' or (m['role']=='teacher' and r['author_id']==m['id'] and r['course_id'] in ids)])
  @app.get('/api/grades/export')
  def export_gradebook():
   from gradebook_export import build_gradebook
@@ -1044,6 +1096,7 @@ def create_app(config=None):
     if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246831)'))
     if stored_file_bytes()+sum(f['size'] for f in variant_uploads)>250*1024*1024:fail('Kho tệp đã đạt 250 MB.')
     d['file']=d['variants'][0]['file']
+   if kind=='assignment':sync_exam_questions_to_bank(cid,m['id'],rid,d.get('title',''),d,bool(d.get('questionBankVersion')))
    g.db.execute(insert(records).values(id=rid,course_id=cid,kind=kind,author_id=m['id'],data=json.dumps(d,ensure_ascii=False),created_at=now()))
    for values in variant_uploads:g.db.execute(insert(exam_files).values(**values))
    if file_data:g.db.execute(insert(library_files).values(**file_data))
@@ -1216,6 +1269,7 @@ def create_app(config=None):
   data['title']=text(data.get('title'));data['body']=text(data.get('body',''),20000,False)
   if 'answerGuide' in data:data['answerGuide']=text(data['answerGuide'],30000,False)
   validate_exam_data(data)
+  sync_exam_questions_to_bank(r['course_id'],r['author_id'],rid,data.get('title',old.get('title','')),data,bool(data.get('questionBankVersion')))
   targets=[row for row in rows(records) if row['kind']=='assignment' and (row['id']==rid or json.loads(row['data']).get('bankSourceId')==rid)]
   ids={row['id'] for row in targets};subs=[sub for sub in rows(submissions) if sub['assignment_id'] in ids]
   try:check_update(old,data,bool(subs))
