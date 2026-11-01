@@ -26,8 +26,9 @@ export default function QuestionBankPicker({entries=[],course,grade,currentUser,
   .slice(0,100);
  const set=(key:string,value:string)=>setFilters((old:any)=>({...old,[key]:value}));
  const select=(key:string,label:string,options:string[])=><label key={key}>{label}<select value={filters[key]} onChange={e=>set(key,e.target.value)}><option value="">Tất cả</option>{options.map(v=><option key={v} value={v}>{v}</option>)}</select></label>;
+ const typeSelect=<label>Dạng câu hỏi<select value={filters.type} onChange={e=>set('type',e.target.value)}><option value="">Tất cả</option>{Object.entries(TYPES).map(([key,label])=><option key={key} value={key}>{label as string}</option>)}</select></label>;
  const add=(items:any[])=>{
-  const picked=items.filter(q=>!selected.includes(q.id)||items.length===1);
+  const picked=items.filter(Boolean);
   if(!picked.length)return;
   onAdd?.(picked);
   setSelected([]);
@@ -44,7 +45,7 @@ export default function QuestionBankPicker({entries=[],course,grade,currentUser,
     {select('chapter','Chương',values('chapter'))}
     {select('lesson','Bài học',values('lesson'))}
     {select('level','Mức độ',LEVELS)}
-    {select('type','Dạng câu hỏi',Object.keys(TYPES).map(k=>TYPES[k]))}
+    {typeSelect}
     <label>Tìm câu hỏi<input value={filters.search} onChange={e=>set('search',e.target.value)} placeholder="Tìm nội dung, chủ đề, yêu cầu cần đạt…"/></label>
    </div>
    <div className="toolbar">
