@@ -1,7 +1,7 @@
 import AssignmentReminder,{readReminder} from './AssignmentReminder';
 import ExamCodePolicy from './ExamCodePolicy';
-import React,{useState,useEffect} from 'react';
-import {LEVELS,TYPES,sum,allocate,makeQuestions,actualMatrix,makeVariants,parseExamImport,newId} from './examPlan.mjs';
+import React,{useState,useEffect,useRef} from 'react';
+import {LEVELS,TYPES,sum,allocate,syncQuestionsToMatrix,actualMatrix,makeVariants,parseExamImport,newId} from './examPlan.mjs';
 import MathText from './MathText';
 import {downloadExam} from './examDownload';
 import ExamQuestions from './ExamQuestions';
@@ -10,24 +10,49 @@ import QuestionBankPicker from './QuestionBankPicker';
 import QuestionClassificationFields from './QuestionClassificationFields';
 import OutlineWorkspace from './OutlineWorkspace';
 const initialRows=()=>[
-{id:'quiz',type:'quiz',topic:'',points:.25,count:12,counts:[0,0,0,0],locked:false},
-{id:'truefalse',type:'truefalse',topic:'',points:1,count:2,counts:[0,0,0,0],locked:false},
-{id:'short',type:'short',topic:'',points:.5,count:4,counts:[0,0,0,0],locked:false},
-{id:'essay',type:'essay',topic:'',points:1,count:3,counts:[0,0,0,0],locked:false}];
+{id:'quiz',type:'quiz',topic:'',points:.25,count:12,counts:[5,4,2,1],locked:false},
+{id:'truefalse',type:'truefalse',topic:'',points:1,count:2,counts:[1,1,0,0],locked:false},
+{id:'short',type:'short',topic:'',points:.5,count:4,counts:[2,1,1,0],locked:false},
+{id:'essay',type:'essay',topic:'',points:1,count:3,counts:[1,1,1,0],locked:false}];
 const fmt=(n:number)=>Number(n.toFixed(3)).toLocaleString('vi-VN');
 export default function ExamComposer({courses,courseId,csrf,reload,notify,close,pdf=false,outlineEntries=[],outlineAssignments=[],act,outlineToEdit=null,questionBank=[],currentUser=null}:any){
 const [outlineSeed,setOutlineSeed]=useState<any>(outlineToEdit?{id:outlineToEdit.id,courseId:outlineToEdit.course_id,...outlineToEdit.data}:null);
 const [qs,setQs]=useState<any[]>([]),[rows,setRows]=useState<any[]>(initialRows),[ratios,setRatios]=useState([40,30,20,10]),[busy,setBusy]=useState(false),[tab,setTab]=useState('edit'),[file,setFile]=useState<File|null>(null),[includeMatrix,setIncludeMatrix]=useState(true),[tfScoring,setTfScoring]=useState('progressive');
+const questionArchive=useRef<any[]>([]);
 const [cid,setCid]=useState(outlineToEdit?.course_id||(courseId==='all'?courses[0]?.id||'':courseId)),[title,setTitle]=useState(''),[minutes,setMinutes]=useState(45),[grade,setGrade]=useState('12');
 const [variantCount,setVariantCount]=useState(1),[shuffleQ,setShuffleQ]=useState(true),[shuffleA,setShuffleA]=useState(true),[variants,setVariants]=useState<any[]>([]),[variantIndex,setVariantIndex]=useState(0);
 useEffect(()=>{setVariants([]);setVariantIndex(0)},[qs]);
+useEffect(()=>{if(!pdf&&!outlineToEdit&&!qs.length){try{setQs(syncQuestionsToMatrix(initialRows(),[],[]).questions)}catch(e:any){notify(e.message)}}},[]);
 useEffect(()=>{if(outlineSeed)document.getElementById('outline-editor')?.scrollIntoView({behavior:'smooth',block:'start'})},[outlineSeed]);
 const active=variants[variantIndex],viewQs=active?[...active.questions,...active.essays]:qs;
 const [importText,setImportText]=useState(''),[subjectCode,setSubjectCode]=useState('00');
 const total=sum(qs.map(q=>q.points)),planPoints=sum(rows.map(r=>sum(r.counts)*Number(r.points))),planCount=sum(rows.map(r=>sum(r.counts))),planned=sum(rows.map(r=>r.count)),ratioTotal=sum(ratios),matrix=actualMatrix(qs),course=courses.find((c:any)=>c.id===cid);
-function rowChange(id:string,key:string,value:any){setRows(rows.map(r=>r.id===id?{...r,[key]:value}:r))}
+function applyRowsAndSync(nextRows:any[]){
+ try{
+  const result=syncQuestionsToMatrix(nextRows,qs,questionArchive.current);
+  questionArchive.current=result.archive;
+  setRows(nextRows);setQs(result.questions);setVariants([]);
+  return true;
+ }catch(e:any){notify(e.message);return false;}
+}
+function rowChange(id:string,key:string,value:any){
+ let next=rows.map(r=>r.id===id?{...r,[key]:value}:r);
+ if(key==='count'){
+  const row=next.find(r=>r.id===id),n=Math.max(0,Math.min(100,Math.floor(Number(value)||0)));
+  const basis=row.locked&&sum(row.counts)>0?row.counts:ratios,denom=sum(basis);
+  const percent=denom>0?basis.map((v:number)=>v*100/denom):[40,30,20,10];
+  next=next.map(r=>r.id===id?{...r,count:n,counts:allocate(n,percent)}:r);
+ }
+ if(key==='locked'){setRows(next);return;}
+ applyRowsAndSync(next);
+}
 function change(i:number,key:string|Record<string,any>,value?:any){const patch=typeof key==='object'?key:{[key]:value};setQs(old=>old.map((q,j)=>j===i?{...q,...patch}:q))}
-function distribute(){try{setRows(rows.map(r=>r.locked?r:{...r,counts:allocate(r.count,ratios)}));notify('Đã phân bố số câu theo tỷ lệ; các hàng được giữ nguyên không thay đổi.')}catch(e:any){notify(e.message)}}
+function distribute(){
+ try{
+  const next=rows.map(r=>r.locked?r:{...r,counts:allocate(r.count,ratios)});
+  if(applyRowsAndSync(next))notify('Đã phân bố và tự cập nhật các thẻ câu hỏi theo ma trận.');
+ }catch(e:any){notify(e.message)}
+}
 function addBankQuestions(items:any[]){
  const existing=new Set(qs.map(q=>q.sourceBankId||q.bankId).filter(Boolean));
  const unique=(items||[]).filter((entry:any)=>{if(!entry?.data)return false;const id=String(entry.id||entry.data.bankId||entry.data.id||'');if(!id||existing.has(id))return false;existing.add(id);return true;});
@@ -57,9 +82,9 @@ function addBankQuestions(items:any[]){
 function generate(){try{
  if(rows.some(r=>sum(r.counts)!==r.count))throw Error('Số câu phân bố của mỗi hàng phải bằng số câu dự kiến.');
  if(Math.abs(planPoints-10)>.001)throw Error('Điều chỉnh số câu và điểm/câu để tổng điểm bằng 10.');
- const next=makeQuestions(rows);
- if(qs.some(q=>q.text.trim())&&!confirm('Tạo lại khung sẽ thay thế các câu đã nhập. Thầy muốn tiếp tục?'))return;
- setQs(next);setTab('edit');notify('Đã tạo khung. Hãy nhập nội dung, chủ đề, yêu cầu cần đạt và đáp án cho từng câu.');
+ const result=syncQuestionsToMatrix(rows,qs,questionArchive.current);
+ questionArchive.current=result.archive;setQs(result.questions);setVariants([]);setTab('edit');
+ notify('Đã đồng bộ thẻ câu hỏi theo ma trận. Nội dung, đáp án và phân loại câu cũ phù hợp được giữ lại.');
 }catch(e:any){notify(e.message)}}
 function mix(){try{setVariants(makeVariants(qs,variantCount,shuffleQ,shuffleA));setVariantIndex(0);setTab('preview');notify('Đã đảo đề. Đúng / Sai giữ thứ tự các ý; đáp án trắc nghiệm được cập nhật theo phương án mới.')}catch(e:any){notify(e.message)}}
 async function copyPrompt(){
@@ -81,9 +106,9 @@ return <section className="form-panel exam-composer"><div className="row"><div><
 {pdf?<><label>Đề PDF (tối đa 5 MB)<input type="file" accept=".pdf,application/pdf" required onChange={e=>setFile(e.target.files?.[0]||null)}/></label><p className="muted">Học sinh tải đề để đọc và nhập bài làm tự luận. Muốn tự chấm trắc nghiệm, dùng nút Soạn đề.</p></>:<>
 <div className="exam-callout"><label className="checkline"><input type="checkbox" checked={includeMatrix} onChange={e=>setIncludeMatrix(e.target.checked)}/>Kèm ma trận & bản đặc tả khi xem / in đề dành cho giáo viên</label><p className="muted">Đáp án và bản đặc tả chỉ giáo viên phụ trách, quản trị viên xem được.</p></div>
 <div className="exam-section"><div className="row"><h3>1. Cấu trúc đề & phân bố mức độ</h3><span className="pill">{planned} câu dự kiến</span></div><div className="exam-ratios">{LEVELS.map((l,i)=><label key={l}>{l} (%)<input type="number" min={0} max={100} step={1} value={ratios[i]} onChange={e=>setRatios(ratios.map((n,j)=>j===i?Number(e.target.value):n))}/></label>)}</div><p className={Math.abs(ratioTotal-100)<.001?'muted':'exam-warning'}>Tổng tỷ lệ: {fmt(ratioTotal)}% · Cần đủ 100%. Phân bố tự động làm tròn và giữ đúng tổng câu của mỗi hàng.</p>
-<div className="scroll"><table className="exam-plan"><thead><tr><th>Dạng câu hỏi / chủ đề</th><th>Số câu</th><th>Điểm/câu</th>{['NB','TH','VD','VDC'].map(l=><th key={l}>{l}</th>)}<th>Tổng câu</th><th>Tổng điểm</th><th>Giữ phân bố</th></tr></thead><tbody>{rows.map((r,ri)=><tr key={r.id}><td><b>{TYPES[r.type]}{r.type==='essay'?` · TL${rows.slice(0,ri+1).filter(x=>x.type==='essay').length}`:''}</b><input aria-label={'Chủ đề '+r.id} placeholder="Chủ đề mặc định cho hàng" maxLength={200} value={r.topic} onChange={e=>rowChange(r.id,'topic',e.target.value)}/>{r.type==='essay'&&ri>3&&<button type="button" className="danger mini" onClick={()=>setRows(rows.filter(x=>x.id!==r.id))}>Xóa hàng</button>}</td><td><input aria-label={'Số câu '+r.id} type="number" min={0} max={100} step={1} value={r.count} onChange={e=>rowChange(r.id,'count',Number(e.target.value))}/></td><td><input aria-label={'Điểm mỗi câu '+r.id} type="number" min={.01} max={10} step={.01} value={r.points} onChange={e=>rowChange(r.id,'points',Number(e.target.value))}/></td>{r.counts.map((n:number,l:number)=><td key={l}><input aria-label={LEVELS[l]+' '+r.id} type="number" min={0} max={100} step={1} value={n} onChange={e=>{setRows(rows.map(x=>x.id===r.id?{...x,locked:true,counts:x.counts.map((v:number,k:number)=>k===l?Number(e.target.value):v)}:x))}}/></td>)}<td className={sum(r.counts)!==r.count?'exam-warning':''}>{sum(r.counts)}</td><td>{fmt(sum(r.counts)*r.points)}</td><td><input aria-label={'Giữ phân bố '+r.id} type="checkbox" checked={r.locked} onChange={e=>rowChange(r.id,'locked',e.target.checked)}/></td></tr>)}</tbody></table></div>
-<div className="toolbar"><button type="button" className="secondary" onClick={()=>setRows([...rows,{id:newId(),type:'essay',topic:'',points:1,count:0,counts:[0,0,0,0],locked:false}])}>＋ Thêm hàng tự luận</button><button type="button" className="secondary" onClick={distribute}>Phân bố tự động theo %</button></div><div className="exam-summary"><b>{planCount} câu · {fmt(planPoints)} / 10 điểm</b><span className={Math.abs(planPoints-10)>.001?'exam-warning':'muted'}>{Math.abs(planPoints-10)>.001?'Tổng điểm chưa bằng 10. Hãy kiểm tra số câu × điểm/câu.':'Tổng điểm hợp lệ.'}</span></div><p className="muted">Nhập tay một ô NB–TH–VD–VDC sẽ tự giữ hàng đó khi phân bố lại. Bỏ chọn “Giữ phân bố” để cho phép chia lại.</p>
-<label>Chấm đúng / sai<select value={tfScoring} onChange={e=>setTfScoring(e.target.value)}><option value="progressive">Lũy kế: đúng 1/2/3/4 ý = 10% / 25% / 50% / 100% điểm câu</option><option value="equal">Đều theo từng ý: mỗi ý đúng = 25% điểm câu</option></select></label><button type="button" onClick={generate}>Tạo khung câu hỏi từ ma trận →</button><p className="muted">Tạo các ô soạn câu hỏi theo cấu trúc đã chọn. Thầy tự nhập nội dung và đáp án.</p></div>
+<div className="scroll"><table className="exam-plan"><thead><tr><th>Dạng câu hỏi / chủ đề</th><th>Số câu</th><th>Điểm/câu</th>{['NB','TH','VD','VDC'].map(l=><th key={l}>{l}</th>)}<th>Tổng câu</th><th>Tổng điểm</th><th>Giữ phân bố</th></tr></thead><tbody>{rows.map((r,ri)=><tr key={r.id}><td><b>{TYPES[r.type]}{r.type==='essay'?` · TL${rows.slice(0,ri+1).filter(x=>x.type==='essay').length}`:''}</b><input aria-label={'Chủ đề '+r.id} placeholder="Chủ đề mặc định cho hàng" maxLength={200} value={r.topic} onChange={e=>rowChange(r.id,'topic',e.target.value)}/>{r.type==='essay'&&ri>3&&<button type="button" className="danger mini" onClick={()=>applyRowsAndSync(rows.filter(x=>x.id!==r.id))}>Xóa hàng</button>}</td><td><input aria-label={'Số câu '+r.id} type="number" min={0} max={100} step={1} value={r.count} onChange={e=>rowChange(r.id,'count',Number(e.target.value))}/></td><td><input aria-label={'Điểm mỗi câu '+r.id} type="number" min={.01} max={10} step={.01} value={r.points} onChange={e=>rowChange(r.id,'points',Number(e.target.value))}/></td>{r.counts.map((n:number,l:number)=><td key={l}><input aria-label={LEVELS[l]+' '+r.id} type="number" min={0} max={100} step={1} value={n} onChange={e=>{const next=rows.map(x=>x.id===r.id?(()=>{const counts=x.counts.map((v:number,k:number)=>k===l?Math.max(0,Math.min(100,Math.floor(Number(e.target.value)||0))):v);return {...x,locked:true,counts,count:sum(counts)}})():x);applyRowsAndSync(next)}}/></td>)}<td className={sum(r.counts)!==r.count?'exam-warning':''}>{sum(r.counts)}</td><td>{fmt(sum(r.counts)*r.points)}</td><td><input aria-label={'Giữ phân bố '+r.id} type="checkbox" checked={r.locked} onChange={e=>rowChange(r.id,'locked',e.target.checked)}/></td></tr>)}</tbody></table></div>
+<div className="toolbar"><button type="button" className="secondary" onClick={()=>applyRowsAndSync([...rows,{id:newId(),type:'essay',topic:'',points:1,count:0,counts:[0,0,0,0],locked:false}])}>＋ Thêm hàng tự luận</button><button type="button" className="secondary" onClick={distribute}>Phân bố tự động theo %</button></div><div className="exam-summary"><b>{planCount} câu · {fmt(planPoints)} / 10 điểm</b><span className={Math.abs(planPoints-10)>.001?'exam-warning':'muted'}>{Math.abs(planPoints-10)>.001?'Tổng điểm chưa bằng 10. Hãy kiểm tra số câu × điểm/câu.':'Tổng điểm hợp lệ.'}</span></div><p className="muted">Nhập tay một ô NB–TH–VD–VDC sẽ tự giữ hàng đó khi phân bố lại. Bỏ chọn “Giữ phân bố” để cho phép chia lại.</p>
+<label>Chấm đúng / sai<select value={tfScoring} onChange={e=>setTfScoring(e.target.value)}><option value="progressive">Lũy kế: đúng 1/2/3/4 ý = 10% / 25% / 50% / 100% điểm câu</option><option value="equal">Đều theo từng ý: mỗi ý đúng = 25% điểm câu</option></select></label><button type="button" onClick={generate}>Đồng bộ / tạo lại thẻ câu hỏi theo ma trận →</button><p className="muted">Thay đổi số câu, dạng câu, điểm hoặc mức độ trong ma trận sẽ tự cập nhật thẻ câu hỏi. Nội dung và đáp án đã soạn được giữ lại khi còn phù hợp; câu tạm ẩn có thể được khôi phục khi tăng lại số lượng.</p></div>
 <MatrixOutlineBuilder rows={rows} ratios={ratios} questions={qs} title={title} grade={grade} subject={course?.subject} courseId={cid} onDraft={setOutlineSeed} notify={notify}/>
 <details className="exam-ai"><summary>Hỗ trợ soạn bằng AI / nhập file</summary><p className="muted">Sao chép yêu cầu theo cấu trúc ở trên, dán vào công cụ AI thầy dùng. Nhập kết quả JSON theo mẫu để chuyển thành các thẻ câu hỏi; không tự gửi dữ liệu đến AI.</p><div className="toolbar"><button type="button" className="secondary" onClick={copyPrompt}>Sao chép yêu cầu soạn đề</button></div><label>Nhập file .json / .txt / .md theo mẫu<input type="file" accept=".json,.txt,.md" onChange={async e=>{const f=e.target.files?.[0];if(!f)return;if(f.size>1024*1024){notify('File tối đa 1 MB.');return}try{importQuestions(await f.text())}catch{notify('Không đọc được file.')}e.target.value=''}}/></label><label>Dán kết quả JSON<textarea value={importText} onChange={e=>setImportText(e.target.value)} maxLength={1048576} rows={5}/></label><button type="button" className="secondary" onClick={()=>importQuestions(importText)}>Nhập thành câu hỏi</button></details>
 <QuestionBankPicker entries={questionBank} course={course} grade={grade} currentUser={currentUser} onAdd={addBankQuestions}/><div className="exam-section"><div className="row"><h3>2. Nội dung đề</h3><span className="pill">{qs.length} câu · {fmt(total)} / 10 điểm</span></div><div className="toolbar exam-tabs">{[['edit','Soạn câu hỏi'],['preview','Xem trước bản in'],['student','Xem như học sinh'],['matrix','Ma trận & đặc tả']].map(([id,label])=><button type="button" className={tab===id?'':'secondary'} key={id} onClick={()=>setTab(id)}>{label}</button>)}{(tab==='preview'||tab==='matrix')&&qs.length>0&&<button type="button" className="secondary" onClick={()=>window.print()}>In / Lưu PDF</button>}</div>
