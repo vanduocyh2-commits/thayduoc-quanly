@@ -1442,6 +1442,8 @@ def create_app(config=None):
   if g.member['role']=='student' and d.get('allowDownload',True) is False and not inline:fail('Giáo viên chỉ cho phép xem đề, không tải tệp.',403)
   response=send_file(io.BytesIO(f['content']),mimetype=f['mime'],download_name=f['name'],as_attachment=not inline,max_age=0)
   return response
+ @app.get('/so-ke-hoach')
+ def teacher_lesson_plan():return send_from_directory(app.static_folder,'so-ke-hoach.html',max_age=0)
  @app.get('/')
  def index():return send_from_directory(app.static_folder,'index.html')
  @app.get('/assets/<path:name>')
