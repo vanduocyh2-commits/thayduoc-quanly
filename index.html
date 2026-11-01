@@ -358,6 +358,30 @@
 
 <!-- TAB 4: TIỆN ÍCH ĐỒ THỊ VÀ BẢNG BIẾN THIÊN (ĐÃ SỬA LỖI & BỔ SUNG ĐỦ 20 DẠNG HÀM SỐ) -->
             <div id="t-tab-tools" class="t-tab-content hidden space-y-5">
+                <section class="bg-white p-4 sm:p-5 rounded-2xl shadow-xs border border-slate-200/80 space-y-3">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <h2 class="text-base sm:text-lg font-extrabold text-slate-800"><i class="fa-solid fa-book-open text-indigo-600 mr-2"></i>Sổ Kế Hoạch Giảng Dạy</h2>
+                            <p class="text-xs text-slate-500 mt-1">Lập kế hoạch theo tuần, học kỳ; nạp PPCT và thời khóa biểu; theo dõi tiến độ; xuất Excel/PDF.</p>
+                        </div>
+                        <a href="/so-ke-hoach.html" target="_blank" rel="noopener" class="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold">
+                            <i class="fa-solid fa-up-right-from-square"></i>Mở toàn màn hình
+                        </a>
+                    </div>
+                    <div class="rounded-xl border border-slate-200 overflow-hidden bg-slate-50">
+                        <iframe
+                            id="teacher-planner-frame"
+                            src="/so-ke-hoach.html"
+                            title="Sổ kế hoạch giảng dạy của giáo viên"
+                            loading="lazy"
+                            class="w-full block"
+                            style="height: min(1100px, 82vh); min-height: 760px; border: 0;"
+                        ></iframe>
+                    </div>
+                    <p class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                        Lần đầu sử dụng, giáo viên tạo tài khoản riêng cho sổ kế hoạch. Dữ liệu hiện được lưu trên trình duyệt/thiết bị đang dùng; hãy sao lưu định kỳ trong công cụ. Chưa đồng bộ dữ liệu sổ lên máy chủ.
+                    </p>
+                </section>
                 <div class="bg-white p-5 rounded-2xl shadow-xs border border-slate-200/80">
                     <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
                         <div>
