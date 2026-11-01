@@ -425,7 +425,7 @@ def create_app(config=None):
  def sync_exam_questions_to_bank(cid,author_id,exam_id,exam_title,data,require_classification=False):
   course=get_course(cid);subject=course['subject']
   all_questions=(data.get('questions') or [])+(data.get('essays') or [])
-  existing=[r for r in rows(records) if r['kind']=='questionBank' and r['course_id']==cid]
+  existing=[r for r in rows(records) if r['kind']=='questionBank']
   def atom(value):return normalized(' '.join(str(value or '').split()))
   for q in all_questions:
    if not isinstance(q,dict):continue
@@ -446,7 +446,7 @@ def create_app(config=None):
    bank_key=json.dumps(key_data,sort_keys=True,ensure_ascii=False)
    old=None;bank_id=str(q.get('bankId') or '')
    if bank_id:
-    candidate=one(records,and_(records.c.id==bank_id,records.c.kind=='questionBank',records.c.course_id==cid))
+    candidate=one(records,and_(records.c.id==bank_id,records.c.kind=='questionBank'))
     if candidate and candidate['author_id']==author_id:old=candidate
    if old is None:
     for candidate in existing:
