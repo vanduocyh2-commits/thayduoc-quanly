@@ -1,5 +1,7 @@
+pytest_plugins = ["test_school"]
+
 import copy
-from test_school import action,state
+from test_school import app,client,action,setup,state,login,token
 from test_school_bank import prepare,update
 
 def question(text='Tính 1 + 1',curriculum='GDPT 2018'):
