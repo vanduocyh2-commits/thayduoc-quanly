@@ -1092,7 +1092,7 @@ def create_app(config=None):
     if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246831)'))
     if stored_file_bytes()+sum(f['size'] for f in variant_uploads)>250*1024*1024:fail('Kho tệp đã đạt 250 MB.')
     d['file']=d['variants'][0]['file']
-   if kind=='assignment':sync_exam_questions_to_bank(cid,m['id'],rid,d.get('title',''),d,bool(d.get('composed')))
+   if kind=='assignment':sync_exam_questions_to_bank(cid,m['id'],rid,d.get('title',''),d,bool(d.get('questionBankVersion')))
    g.db.execute(insert(records).values(id=rid,course_id=cid,kind=kind,author_id=m['id'],data=json.dumps(d,ensure_ascii=False),created_at=now()))
    for values in variant_uploads:g.db.execute(insert(exam_files).values(**values))
    if file_data:g.db.execute(insert(library_files).values(**file_data))
@@ -1265,7 +1265,7 @@ def create_app(config=None):
   data['title']=text(data.get('title'));data['body']=text(data.get('body',''),20000,False)
   if 'answerGuide' in data:data['answerGuide']=text(data['answerGuide'],30000,False)
   validate_exam_data(data)
-  sync_exam_questions_to_bank(r['course_id'],r['author_id'],rid,data.get('title',old.get('title','')),data,bool(data.get('composed')))
+  sync_exam_questions_to_bank(r['course_id'],r['author_id'],rid,data.get('title',old.get('title','')),data,bool(data.get('questionBankVersion')))
   targets=[row for row in rows(records) if row['kind']=='assignment' and (row['id']==rid or json.loads(row['data']).get('bankSourceId')==rid)]
   ids={row['id'] for row in targets};subs=[sub for sub in rows(submissions) if sub['assignment_id'] in ids]
   try:check_update(old,data,bool(subs))
