@@ -1,5 +1,11 @@
-FROM python:3.12-slim-bookworm
+FROM node:22-bookworm-slim AS frontend
+WORKDIR /frontend
+COPY render-school/package.json render-school/package-lock.json ./
+RUN npm ci
+COPY render-school/ ./
+RUN npm run build
 
+FROM python:3.12-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 SAL_USE_VCLPLUGIN=svp
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-writer libreoffice-impress fonts-liberation fonts-dejavu-core fonts-noto-core \
@@ -9,6 +15,7 @@ WORKDIR /app
 COPY render-school/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY render-school/ ./
+COPY --from=frontend /frontend/static ./static
 RUN useradd --create-home school && chown -R school:school /app
 USER school
 RUN ["python", "-c", "import io; from docx import Document; from pdf_conversion import convert_docx_to_pdf; document=Document(); document.add_paragraph('Word to PDF deployment check'); source=io.BytesIO(); document.save(source); assert convert_docx_to_pdf(source.getvalue()).startswith(b'%PDF-'); print('Word-to-PDF self-check passed')"]
