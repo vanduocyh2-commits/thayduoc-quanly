@@ -6,7 +6,7 @@ const LEVELS=['Nhận biết','Thông hiểu','Vận dụng','Vận dụng cao']
 const clean=(value:any)=>String(value??'').trim();
 
 export default function QuestionBankPicker({entries=[],course,grade,currentUser,onAdd}:any){
- const [filters,setFilters]=useState<any>(()=>({grade:String(grade||course?.grade||''),subject:clean(course?.subject),curriculum:'',textbook:'',chapter:'',lesson:'',level:'',type:'',search:''}));
+ const [filters,setFilters]=useState<any>(()=>({grade:String(grade||course?.grade||''),subject:clean(course?.subject),curriculum:'',textbook:'',topic:'',chapter:'',lesson:'',level:'',type:'',search:''}));
  const [selected,setSelected]=useState<string[]>([]);
  useEffect(()=>{setFilters((old:any)=>({...old,grade:String(grade||course?.grade||''),subject:clean(course?.subject)}));setSelected([])},[course?.id,course?.grade,course?.subject,grade]);
  const all=useMemo(()=>entries.map((row:any)=>{
