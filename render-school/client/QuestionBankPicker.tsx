@@ -14,18 +14,35 @@ export default function QuestionBankPicker({entries=[],course,grade,currentUser,
   const id=String(row?.id||q.bankId||q.id||'');
   return {...q,data:q,id,bankId:id,ownerId:row?.author_id||q.ownerId||'',author_id:row?.author_id||q.author_id||'',courseLabel:row?.course_label||'',authorName:row?.author_name||''};
  }).filter((q:any)=>q.id&&clean(q.text)),[entries]);
- const values=(key:string)=>[...new Set(all.map((q:any)=>clean(q[key])).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'vi',{numeric:true}));
+ const values=(key:string)=>{
+  const rows=all.filter((q:any)=>{
+   if(key!=='grade'&&filters.grade&&String(q.grade||'')!==filters.grade)return false;
+   if(key!=='subject'&&filters.subject&&clean(q.subject)!==filters.subject)return false;
+   if(key!=='curriculum'&&filters.curriculum&&clean(q.curriculum)!==filters.curriculum)return false;
+   if(key!=='textbook'&&filters.textbook&&clean(q.textbook)!==filters.textbook)return false;
+   if(key!=='topic'&&filters.topic&&clean(q.topic)!==filters.topic)return false;
+   if(key!=='chapter'&&filters.chapter&&clean(q.chapter)!==filters.chapter)return false;
+   if(key!=='lesson'&&filters.lesson&&clean(q.lesson)!==filters.lesson)return false;
+   return true;
+  });
+  return [...new Set(rows.map((q:any)=>clean(q[key])).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'vi',{numeric:true}));
+ };
  const filtered=all.filter((q:any)=>!filters.grade||String(q.grade||'')===filters.grade)
   .filter((q:any)=>!filters.subject||clean(q.subject)===filters.subject)
   .filter((q:any)=>!filters.curriculum||clean(q.curriculum)===filters.curriculum)
   .filter((q:any)=>!filters.textbook||clean(q.textbook)===filters.textbook)
+  .filter((q:any)=>!filters.topic||clean(q.topic)===filters.topic)
   .filter((q:any)=>!filters.chapter||clean(q.chapter)===filters.chapter)
   .filter((q:any)=>!filters.lesson||clean(q.lesson)===filters.lesson)
   .filter((q:any)=>!filters.level||clean(q.level)===filters.level)
   .filter((q:any)=>!filters.type||clean(q.type)===filters.type)
   .filter((q:any)=>!filters.search||[q.text,q.topic,q.outcome,q.subject,q.curriculum,q.textbook,q.chapter,q.lesson].join(' ').toLocaleLowerCase('vi').includes(filters.search.toLocaleLowerCase('vi')))
   .slice(0,200);
- const set=(key:string,value:string)=>{setFilters((old:any)=>({...old,[key]:value}));setSelected([])};
+ const set=(key:string,value:string)=>{
+  const reset:any={grade:['subject','curriculum','textbook','topic','chapter','lesson'],subject:['curriculum','textbook','topic','chapter','lesson'],curriculum:['textbook','topic','chapter','lesson'],textbook:['topic','chapter','lesson'],topic:['chapter','lesson'],chapter:['lesson']}[key]||[];
+  setFilters((old:any)=>({...old,[key]:value,...Object.fromEntries(reset.map((field:string)=>[field,'']))}));
+  setSelected([]);
+ };
  const select=(key:string,label:string,options:string[])=><label key={key}>{label}<select value={filters[key]} onChange={e=>set(key,e.target.value)}><option value="">Tất cả</option>{options.map(v=><option key={v} value={v}>{v}</option>)}</select></label>;
  const typeSelect=<label>Dạng câu hỏi<select value={filters.type} onChange={e=>set('type',e.target.value)}><option value="">Tất cả</option>{Object.entries(TYPES).map(([key,label])=><option key={key} value={key}>{label as string}</option>)}</select></label>;
  const visibleIds=filtered.map((q:any)=>q.id);
@@ -37,7 +54,7 @@ export default function QuestionBankPicker({entries=[],course,grade,currentUser,
   onAdd?.(picked);
   setSelected([]);
  };
- const clear=()=>{setFilters({grade:'',subject:'',curriculum:'',textbook:'',chapter:'',lesson:'',level:'',type:'',search:''});setSelected([])};
+ const clear=()=>{setFilters({grade:'',subject:'',curriculum:'',textbook:'',topic:'',chapter:'',lesson:'',level:'',type:'',search:''});setSelected([])};
  return <section className="exam-section question-bank-picker">
   <details>
    <summary><b>Ngân hàng câu hỏi</b> · {all.length} câu đã lưu · Chọn câu để đưa vào đề thường hoặc đề ma trận</summary>
@@ -46,6 +63,7 @@ export default function QuestionBankPicker({entries=[],course,grade,currentUser,
     {select('subject','Môn học',values('subject'))}
     {select('curriculum','Chương trình',values('curriculum'))}
     {select('textbook','Bộ sách',values('textbook'))}
+    {select('topic','Chủ đề',values('topic'))}
     {select('chapter','Chương',values('chapter'))}
     {select('lesson','Bài học',values('lesson'))}
     {select('level','Mức độ',LEVELS)}
