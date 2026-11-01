@@ -57,7 +57,7 @@ export const KNTT_MATH_CATALOG: KnttBook[] = Object.entries(raw).flatMap(([grade
     chapters: chapters.map(([title, lessons], chapterIndex) => ({
       id: `${grade}-${volume}-c${chapterIndex + 1}`,
       title,
-      order: chapterIndex + 1,
+      order: (Number(volume) === 1 ? 1 : Number(grade) === 12 ? 4 : 6) + chapterIndex,
       lessons: lessons.map((lessonTitle, lessonIndex) => ({
         id: `${grade}-${volume}-c${chapterIndex + 1}-l${lessonIndex + 1}`,
         title: lessonTitle,
