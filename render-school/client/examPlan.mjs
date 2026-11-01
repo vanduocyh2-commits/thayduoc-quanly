@@ -16,6 +16,60 @@ export function makeQuestions(rows){
  if(!count||count>100)throw Error('Đề cần từ 1 đến 100 câu.');
  return rows.flatMap(r=>r.counts.flatMap((n,l)=>Array.from({length:n},()=>({id:newId(),rowId:r.id,type:r.type,text:'',topic:r.topic||'',level:LEVELS[l],points:Number(r.points),outcome:'',answers:['','','',''],correct:r.type==='truefalse'?[true,true,true,true]:r.type==='short'?'':0}))));
 }
+
+/**
+ * Keep the question cards in step with the matrix. Matching cards are reused so
+ * their text, options, answers and classification are retained. Cards that no
+ * longer fit the matrix are parked and can be restored if the matrix grows again.
+ */
+export function syncQuestionsToMatrix(rows, current = [], archived = []) {
+ const pool = [], seen = new Set();
+ for (const q of [...(current || []), ...(archived || [])]) {
+  const id = String(q?.id || '');
+  if (!id || seen.has(id)) continue;
+  seen.add(id); pool.push(q);
+ }
+ const used = new Set(), questions = [];
+ const take = predicate => {
+  const q = pool.find(item => !used.has(String(item.id)) && predicate(item));
+  if (q) used.add(String(q.id));
+  return q;
+ };
+ for (const row of rows || []) {
+  const rowId = String(row.id || row.type);
+  const points = Number(row.points);
+  const counts = Array.isArray(row.counts) ? row.counts : [0,0,0,0];
+  for (let levelIndex = 0; levelIndex < 4; levelIndex++) {
+   const count = Math.max(0, Math.min(100, Math.floor(Number(counts[levelIndex]) || 0)));
+   for (let n = 0; n < count; n++) {
+    const level = LEVELS[levelIndex];
+    let q = take(item => item.type === row.type && String(item.rowId || item.type) === rowId && item.level === level && Math.abs(Number(item.points) - points) < 0.0001);
+    if (!q) q = take(item => item.type === row.type && String(item.rowId || item.type) === rowId && item.level === level);
+    if (!q) q = take(item => item.type === row.type && item.level === level && Math.abs(Number(item.points) - points) < 0.0001);
+    if (!q) q = take(item => item.type === row.type && item.level === level);
+    if (!q) q = take(item => item.type === row.type && String(item.rowId || item.type) === rowId);
+    if (!q) q = take(item => item.type === row.type);
+    if (!q) {
+     q = {
+      id: newId(), rowId, type: row.type, level, points,
+      text: '', topic: row.topic || '', outcome: '',
+      answers: ['', '', '', ''],
+      correct: row.type === 'truefalse' ? [true, true, true, true] : row.type === 'short' ? '' : 0
+     };
+    } else {
+     q = { ...q, rowId, type: row.type, level, points,
+      topic: q.topic || row.topic || '',
+      answers: ['quiz','truefalse'].includes(row.type) && (!Array.isArray(q.answers) || q.answers.length !== 4) ? ['', '', '', ''] : q.answers
+     };
+    }
+    questions.push(q);
+   }
+  }
+ }
+ if (questions.length > 100) throw Error('Đề cần từ 1 đến 100 câu.');
+ return { questions, archive: pool.filter(q => !used.has(String(q.id))).slice(-400) };
+}
+
 export function actualMatrix(qs){
  const topics=[...new Set(qs.map(q=>q.topic||'Chưa đặt chủ đề'))];
  return topics.map(topic=>({topic,levels:LEVELS.map(level=>{const a=qs.filter(q=>(q.topic||'Chưa đặt chủ đề')===topic&&q.level===level);return {count:a.length,points:sum(a.map(q=>q.points)),types:Object.keys(TYPES).map(type=>({type,count:a.filter(q=>q.type===type).length})).filter(x=>x.count)};})}));
