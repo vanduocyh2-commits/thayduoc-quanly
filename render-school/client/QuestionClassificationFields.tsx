@@ -11,8 +11,8 @@ export default function QuestionClassificationFields({q,i,grade,subject,change}:
  const chapter=chapters.find(row=>row.title===q.chapter);
  const lessons=chapter?.lessons||[];
  const manual=()=> <>
-  <label>Khối<input required type="number" min="1" max="12" value={q.grade||grade} onChange={e=>change(i,'grade',e.target.value)}/></label>
-  <label>Bộ sách<input maxLength={160} value={q.textbook||''} onChange={e=>change(i,'textbook',e.target.value)} placeholder="Ví dụ: Kết nối tri thức"/></label>
+  <label>Khối<input required type="number" min="1" max="12" value={q.grade||grade} onChange={e=>change(i,{grade:e.target.value,textbook:'',chapter:'',chapterOrder:1,lesson:'',lessonOrder:1})}/></label>
+  <label>Bộ sách<input maxLength={160} value={q.textbook||''} onChange={e=>change(i,{textbook:e.target.value,chapter:'',chapterOrder:1,lesson:'',lessonOrder:1})} placeholder="Ví dụ: Kết nối tri thức"/></label>
   <label>Chương<input required maxLength={160} value={q.chapter||''} onChange={e=>change(i,'chapter',e.target.value)} placeholder="Tên chương"/></label>
   <label>Thứ tự chương<input type="number" min="1" max="999" value={q.chapterOrder||1} onChange={e=>change(i,'chapterOrder',Number(e.target.value))}/></label>
   <label>Bài học<input required maxLength={160} value={q.lesson||''} onChange={e=>change(i,'lesson',e.target.value)} placeholder="Tên bài"/></label>
