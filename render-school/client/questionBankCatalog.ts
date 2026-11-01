@@ -49,17 +49,17 @@ const raw: Record<string, Record<string, [string, string[]][]>> = {
 
 export const KNTT_MATH_CATALOG: KnttBook[] = Object.entries(raw).flatMap(([grade, volumes]) =>
   Object.entries(volumes).map(([volume, chapters]) => ({
-    id: \`toan-\${grade}-tap-\${volume}\`,
+    id: `toan-${grade}-tap-${volume}`,
     grade: Number(grade),
     volume: Number(volume),
-    textbook: \`Kết nối tri thức với cuộc sống — Toán \${grade} — Tập \${volume}\`,
-    label: \`Toán \${grade} · Kết nối tri thức · Tập \${volume}\`,
+    textbook: `Kết nối tri thức với cuộc sống — Toán ${grade} — Tập ${volume}`,
+    label: `Toán ${grade} · Kết nối tri thức · Tập ${volume}`,
     chapters: chapters.map(([title, lessons], chapterIndex) => ({
-      id: \`\${grade}-\${volume}-c\${chapterIndex + 1}\`,
+      id: `${grade}-${volume}-c${chapterIndex + 1}`,
       title,
       order: chapterIndex + 1,
       lessons: lessons.map((lessonTitle, lessonIndex) => ({
-        id: \`\${grade}-\${volume}-c\${chapterIndex + 1}-l\${lessonIndex + 1}\`,
+        id: `${grade}-${volume}-c${chapterIndex + 1}-l${lessonIndex + 1}`,
         title: lessonTitle,
         order: lessonIndex + 1
       }))
