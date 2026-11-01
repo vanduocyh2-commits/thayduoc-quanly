@@ -29,7 +29,8 @@ function change(i:number,key:string,value:any){setQs(qs.map((q,j)=>j===i?{...q,[
 function distribute(){try{setRows(rows.map(r=>r.locked?r:{...r,counts:allocate(r.count,ratios)}));notify('Đã phân bố số câu theo tỷ lệ; các hàng được giữ nguyên không thay đổi.')}catch(e:any){notify(e.message)}}
 function addBankQuestions(items:any[]){
  const existing=new Set(qs.map(q=>q.sourceBankId||q.bankId).filter(Boolean));
- const added=(items||[]).filter((entry:any)=>entry&&entry.data&&!existing.has(entry.id||entry.data.bankId)).map((entry:any)=>{
+ const unique=(items||[]).filter((entry:any)=>{if(!entry?.data)return false;const id=String(entry.id||entry.data.bankId||entry.data.id||'');if(!id||existing.has(id))return false;existing.add(id);return true;});
+ const added=unique.map((entry:any)=>{
   const source=entry.data,sourceId=String(entry.id||source.bankId||source.id);
   const own=currentUser?.role==='admin'||entry.author_id===currentUser?.id;
   const q={...source,id:newId(),rowId:source.type,type:source.type,grade:String(source.grade||grade),subject:String(source.subject||course?.subject||''),curriculum:String(source.curriculum||'GDPT 2018'),textbook:String(source.textbook||''),chapter:String(source.chapter||''),chapterOrder:Number(source.chapterOrder)||1,lesson:String(source.lesson||''),lessonOrder:Number(source.lessonOrder)||1,bankId:own?sourceId:'',sourceBankId:sourceId,points:Number(source.points)||1,level:source.level||LEVELS[0],answers:Array.isArray(source.answers)?[...source.answers]:['','','','']};
