@@ -26,6 +26,7 @@ courses=Table('school_courses',metadata,Column('id',String,primary_key=True),Col
 enrollments=Table('school_enrollments',metadata,Column('course_id',String,ForeignKey('school_courses.id'),primary_key=True),Column('member_id',String,ForeignKey('school_members.id'),primary_key=True))
 records=Table('school_records',metadata,Column('id',String,primary_key=True),Column('course_id',String,ForeignKey('school_courses.id'),nullable=False),Column('kind',String,nullable=False),Column('author_id',String,ForeignKey('school_members.id'),nullable=False),Column('data',Text,nullable=False),Column('created_at',String,nullable=False))
 submissions=Table('school_submissions',metadata,Column('id',String,primary_key=True),Column('assignment_id',String,ForeignKey('school_records.id'),nullable=False),Column('member_id',String,ForeignKey('school_members.id'),nullable=False),Column('data',Text,nullable=False),Column('created_at',String,nullable=False),UniqueConstraint('assignment_id','member_id'))
+attempt_exams=Table('school_attempt_exams',metadata,Column('assignment_id',String,ForeignKey('school_records.id',ondelete='CASCADE'),primary_key=True),Column('member_id',String,ForeignKey('school_members.id',ondelete='CASCADE'),primary_key=True),Column('attempt',Integer,primary_key=True),Column('data',Text,nullable=False))
 exam_clocks=Table('school_exam_clocks',metadata,Column('assignment_id',String,ForeignKey('school_records.id',ondelete='CASCADE'),primary_key=True),Column('member_id',String,ForeignKey('school_members.id',ondelete='CASCADE'),primary_key=True),Column('attempt',Integer,primary_key=True),Column('started_at',Integer,nullable=False))
 teacher_registrations=Table('school_teacher_registrations',metadata,Column('id',String,primary_key=True),Column('username',String,unique=True,nullable=False),Column('name',String,nullable=False),Column('email',String),Column('password_hash',String,nullable=False),Column('status',String,nullable=False),Column('created_at',String,nullable=False),Column('reviewed_at',String),Column('reviewed_by',String),Column('member_id',String))
 sessions=Table('school_sessions',metadata,Column('token_hash',String,primary_key=True),Column('member_id',String,ForeignKey('school_members.id'),nullable=False),Column('csrf',String,nullable=False),Column('expires_at',Integer,nullable=False))
@@ -85,6 +86,32 @@ def assigned_exam(data,rid,mid):
  index=int(hashlib.sha256((rid+':'+mid).encode()).hexdigest(),16)%len(variants)
  v=next((v for v in variants if data.get('codePolicy')=='fixed' and v['code']==data.get('fixedExamCode')),variants[index])
  return {**data,'questions':v['questions'],'essays':v['essays'],'examCode':v['code'],'file':v.get('file',data.get('file'))}
+def retake_exam(base,bank,seen):
+ import copy
+ result=copy.deepcopy(base)
+ if not base.get('randomRetake') or not base.get('composed') or base.get('file'):return result
+ used=set()
+ def norm(v):return ' '.join(str(v or '').casefold().split())
+ def choose(q):
+  original=str(q.get('sourceBankId') or q.get('bankId') or q.get('id') or '')
+  candidates=[]
+  for row in bank:
+   b=json.loads(row['data']);bid=str(row['id'])
+   if bid in used or bid in seen or bid==original:continue
+   if any(norm(b.get(k))!=norm(q.get(k) or (base.get(k) if k in ('grade','subject','curriculum') else '')) for k in ('grade','subject','curriculum','chapter','lesson','type','level')):continue
+   if abs(float(b.get('points') or 0)-float(q.get('points') or 0))>0.001:continue
+   if not str(b.get('text') or '').strip():continue
+   if b.get('type') in ('quiz','truefalse','short'):
+    try:validate_auto_question(b)
+    except AppError:continue
+   candidates.append((bid,b))
+  if not candidates:return copy.deepcopy(q)
+  bid,b=secrets.choice(candidates);used.add(bid)
+  return {**copy.deepcopy(b),'id':secrets.token_hex(12),'sourceBankId':bid}
+ result['questions']=[choose(q) for q in base.get('questions',[])]
+ result['essays']=[choose(q) for q in base.get('essays',[])]
+ return result
+
 def configure_code_policy(data,policy='random',fixed=''):
  codes=[v['code'] for v in data.get('variants',[])]
  if policy not in ['random','fixed'] or (policy=='fixed' and fixed not in codes):fail('Chọn cách phân và mã đề hợp lệ.')
@@ -117,6 +144,8 @@ def validate_variants(data):
 
 def validate_exam_data(d):
  if d.get('type') not in ['essay','quiz','mixed']:fail('Hình thức chưa hợp lệ.')
+ if type(d.get('randomRetake',False)) is not bool:fail('Tùy chọn thi lại ngẫu nhiên không hợp lệ.')
+ if d.get('randomRetake') and not d.get('composed'):fail('Chỉ hỗ trợ thi lại ngẫu nhiên với đề soạn trực tiếp.')
  if type(d.get('allowDownload',True)) is not bool:fail('Quyền tải đề chưa hợp lệ.')
  if d.get('due'):parse_date(d['due'])
  try:d['reminder']=normalize_reminder(d.get('reminder'),d.get('opensAt'),d.get('due'),d.get('bankOnly',False))
@@ -662,7 +691,11 @@ def create_app(config=None):
      if not d.get('published'):continue
      d.pop('requirements',None)
     if r['kind']=='assignment':
-     d=assigned_exam(d,r['id'],m['id']);d.pop('variants',None);d.pop('_reminderSent',None)
+     d=assigned_exam(d,r['id'],m['id'])
+     completed=next((json.loads(sub['data']).get('attemptCount',1) for sub in all_subs if sub['assignment_id']==r['id'] and sub['member_id']==m['id']),0)
+     frozen=one(attempt_exams,and_(attempt_exams.c.assignment_id==r['id'],attempt_exams.c.member_id==m['id'],attempt_exams.c.attempt==completed+1))
+     if frozen:d=json.loads(frozen['data'])
+     d.pop('variants',None);d.pop('_reminderSent',None)
      if d.get('file'):d['file']['downloadAllowed']=d.get('allowDownload',True)
      show_answers=d.get('allowViewAnswers',False) and r['id'] in submitted_ids
      if not show_answers:
@@ -847,6 +880,18 @@ def create_app(config=None):
   attempt=completed+1
   key=and_(exam_clocks.c.assignment_id==rid,exam_clocks.c.member_id==g.member['id'],exam_clocks.c.attempt==attempt)
   clock=one(exam_clocks,key)
+  frozen=one(attempt_exams,and_(attempt_exams.c.assignment_id==rid,attempt_exams.c.member_id==g.member['id'],attempt_exams.c.attempt==attempt))
+  if frozen:d=json.loads(frozen['data'])
+  else:
+   seen=set()
+   if previous:
+    old=json.loads(previous['data'])
+    for entry in [old]+old.get('history',[]):
+     for q in (entry.get('examSnapshot') or {}).get('questions',[])+(entry.get('examSnapshot') or {}).get('essays',[]):
+      seen.add(str(q.get('sourceBankId') or q.get('bankId') or q.get('id') or ''))
+   bank=[row for row in rows(records) if row['kind']=='questionBank'] if attempt>1 else []
+   d=retake_exam(d,bank,seen) if attempt>1 else d
+   g.db.execute(insert(attempt_exams).values(assignment_id=rid,member_id=g.member['id'],attempt=attempt,data=json.dumps(d,ensure_ascii=False)))
   if not clock:
    if d.get('due') and current>parse_date(d['due']):fail('Đã hết hạn nộp.',409)
    started=current
@@ -855,7 +900,7 @@ def create_app(config=None):
   deadlines=[]
   if d.get('minutes'):deadlines.append(started+int(d['minutes'])*60)
   if d.get('due'):deadlines.append(int(parse_date(d['due'])))
-  return jsonify(startedAt=started*1000,deadline=min(deadlines)*1000 if deadlines else None,serverNow=current*1000,attempt=attempt)
+  return jsonify(startedAt=started*1000,deadline=min(deadlines)*1000 if deadlines else None,serverNow=current*1000,attempt=attempt,exam={**d,'questions':[{k:v for k,v in q.items() if k not in ('correct','outcome')} for q in d.get('questions',[])],'essays':[{k:v for k,v in q.items() if k not in ('correct','outcome')} for q in d.get('essays',[])]})
  @app.post('/api/school')
  @app.post('/api/exams')
  @app.post('/api/submissions')
@@ -1129,6 +1174,10 @@ def create_app(config=None):
    if uploads:
     if engine.dialect.name=='postgresql':g.db.execute(sql_text('SELECT pg_advisory_xact_lock(719246831)'))
     if stored_file_bytes()+sum(file['size'] for file in uploads)>250*1024*1024:fail('Kho tệp đã đạt 250 MB.')
+   attempt_number=(prev.get('attemptCount',1) if prev else 0)+1
+   frozen=one(attempt_exams,and_(attempt_exams.c.assignment_id==r['id'],attempt_exams.c.member_id==m['id'],attempt_exams.c.attempt==attempt_number))
+   if d.get('randomRetake') and attempt_number>1 and not frozen:fail('Hãy mở lại đề để bắt đầu lượt thi mới.',409)
+   if frozen:d=json.loads(frozen['data'])
    essay_text=text(p.get('text',''),30000,False)
    if d['type']!='quiz' and not essay_text and not uploads:fail('Cần nhập bài tự luận hoặc đính kèm bài làm.')
    if d['type'] in ['quiz','mixed']:
@@ -1142,7 +1191,8 @@ def create_app(config=None):
    if d.get('gradingMode')=='semi' and d['type']=='quiz':data.update(quizScore=data['score'],score=None)
    if d.get('gradingMode')=='manual':data.update(score=None);data.pop('quizScore',None)
    if d.get('examCode'):data['examCode']=d['examCode']
-   data['attemptCount']=(prev.get('attemptCount',1) if prev else 0)+1
+   data['attemptCount']=attempt_number
+   data['examSnapshot']=d
    submitted_at=datetime.fromtimestamp(time.time(),timezone.utc).isoformat();data['submittedAt']=submitted_at
    clock=one(exam_clocks,and_(exam_clocks.c.assignment_id==r['id'],exam_clocks.c.member_id==m['id'],exam_clocks.c.attempt==data['attemptCount']))
    attach_attempt_times(data,submitted_at,{data['attemptCount']:clock['started_at']} if clock else {})
