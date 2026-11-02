@@ -9,25 +9,14 @@ DB_FILE = 'database.json'
 def index():
     return send_from_directory('.', 'index.html')
 
+# Legacy bulk-data API is disabled until server-side authentication and
+# per-role authorization are implemented. The browser portal uses Firebase
+# directly; exposing the complete database here bypasses its access rules.
 @app.route('/api/data', methods=['GET', 'POST'])
 def handle_data():
-    if request.method == 'POST':
-        data = request.json
-        try:
-            with open(DB_FILE, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            return jsonify({"status": "success"})
-        except Exception as e:
-            return jsonify({"status": "error", "message": str(e)}), 500
-    else:
-        if os.path.exists(DB_FILE):
-            try:
-                with open(DB_FILE, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                return jsonify(data)
-            except:
-                return jsonify({})
-        return jsonify({})
+    response = jsonify({"status": "error", "message": "Legacy data endpoint disabled: authentication required"})
+    response.headers['Cache-Control'] = 'no-store'
+    return response, 403
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
