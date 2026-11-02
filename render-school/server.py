@@ -1210,7 +1210,7 @@ def create_app(config=None):
    if previous:
     history=prev.get('history',[])
     history.append({k:v for k,v in prev.items() if k not in ['history','attemptScores','bestAttempt','bestScore','bestAttemptCount','bestSubmittedAt']}|{'submittedAt':previous['created_at']})
-    data['history']=history[-20:]
+    data['history']=history  # Preserve every previous attempt; never discard older grades
     data['attemptScores']=with_best_result(prev,previous['created_at'])['attemptScores']
     data['bestAttempt']=prev.get('bestAttempt')
     with_best_result(data,submitted_at)
