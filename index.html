@@ -1833,7 +1833,8 @@ function drawBBTContent(ctx, w, h, info) {
                     }
                 }
             ],
-            gradeBook: []
+            gradeBook: [],
+            questionBank: [] // Kho cau hoi moi, khong thay doi de va diem cu
         };
 
         // ================= 2. HỆ THỐNG THÔNG BÁO & HỘP THOẠI (THAY THẾ ALERT/CONFIRM/PROMPT) =================
@@ -1977,6 +1978,12 @@ function drawBBTContent(ctx, w, h, info) {
                 }
             }, (err) => console.warn("Classes sync error:", err));
 
+            // Kho cau hoi doc lap; khong ghi de du lieu de thi hien co.
+            const bankRef = collection(db, 'artifacts', appId, 'public', 'data', 'questionBank');
+            onSnapshot(bankRef, snap => {
+                state.questionBank = snap.docs.map(d => d.data());
+            }, err => console.warn('Question bank sync error:', err));
+
             // 3. Đồng bộ Danh sách Đề thi
             const examsRef = collection(db, 'artifacts', appId, 'public', 'data', 'exams');
             onSnapshot(examsRef, (snap) => {
@@ -2054,7 +2061,8 @@ function drawBBTContent(ctx, w, h, info) {
                     title: examObj.title,
                     duration: examObj.duration,
                     structureJson: JSON.stringify(examObj.structure || {}),
-                    codesJson: JSON.stringify(examObj.codes || {})
+                    codesJson: JSON.stringify(examObj.codes || {}),
+                    retakeEnabled: Boolean(examObj.retakeEnabled)
                 };
                 await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'exams', String(examObj.id)), payload);
             } catch (e) { console.warn(e); }
@@ -2979,6 +2987,60 @@ function drawBBTContent(ctx, w, h, info) {
             renderTeacherExams();
         }
 
+        // Cau hoi phai co noi dung va dap an, khong lay dap an cua PDF de ghep ngau nhien.
+        function normalizeBankQuestion(q) {
+            const types = ['mcq', 'trueFalse', 'shortAnswer', 'essay'];
+            if (!q || !types.includes(q.type) || !String(q.content || '').trim() ||
+                !String(q.subject || '').trim() || !String(q.grade || '').trim() ||
+                !String(q.chapter || '').trim() || !String(q.lesson || '').trim() ||
+                !String(q.level || '').trim() || (q.type !== 'essay' && !String(q.answer || '').trim())) {
+                throw new Error('Câu hỏi thiếu nội dung, đáp án hoặc thông tin phân loại.');
+            }
+            return { id: String(q.id || 'q_' + Date.now() + '_' + Math.random().toString(36).slice(2)),
+                type:q.type, content:String(q.content).trim(), answer:String(q.answer || '').trim(),
+                subject:String(q.subject).trim(), grade:String(q.grade).trim(),
+                chapter:String(q.chapter).trim(), lesson:String(q.lesson).trim(), level:String(q.level).trim() };
+        }
+
+        async function saveBankQuestion(q) {
+            if (state.sessionRole !== 'teacher') throw new Error('Chỉ giáo viên được lưu câu hỏi.');
+            const item = normalizeBankQuestion(q);
+            if (!currentUser || !db) throw new Error('Chưa kết nối cơ sở dữ liệu; không thể xác nhận đã lưu.');
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'questionBank', item.id), item);
+            return item;
+        }
+
+        function selectQuestionsForMatrix(matrix, sourceQuestions = state.questionBank) {
+            const selected = [], used = new Set();
+            for (const slot of matrix) {
+                const count = Number(slot.count);
+                if (!Number.isSafeInteger(count) || count < 0) throw new Error('Số câu trong ma trận không hợp lệ.');
+                const match = q => q.type === slot.type && q.subject === slot.subject &&
+                    q.grade === slot.grade && q.chapter === slot.chapter &&
+                    q.lesson === slot.lesson && q.level === slot.level && !used.has(q.id);
+                const candidates = sourceQuestions.filter(match);
+                for (let i = candidates.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+                }
+                if (candidates.length < count) throw new Error('Ngân hàng thiếu câu phù hợp: ' +
+                    [slot.subject,slot.chapter,slot.lesson,slot.level,slot.type].join(' / ') +
+                    ' (cần ' + count + ', có ' + candidates.length + ').');
+                for (const q of candidates.slice(0,count)) { used.add(q.id); selected.push(q); }
+            }
+            return selected;
+        }
+
+        function toggleExamRetake(examId) {
+            if (state.sessionRole !== 'teacher') return;
+            const exam = state.exams.find(e => String(e.id) === String(examId));
+            if (!exam) return;
+            showDialog({title:'Xác nhận quyền thi lại',
+                message:exam.retakeEnabled ? 'Tắt quyền thi lại của đề này?' : 'Cho phép học sinh thi lại đề này? Đề gốc và điểm cũ vẫn được giữ nguyên.',
+                confirmText:exam.retakeEnabled ? 'Tắt thi lại' : 'Cho phép thi lại',
+                onConfirm:() => { exam.retakeEnabled = !exam.retakeEnabled; syncExamToCloud(exam); renderTeacherExams(); }});
+        }
+
         function renderTeacherExams() {
             const container = document.getElementById('teacher-exams-list');
             if (!container) return;
@@ -3015,6 +3077,9 @@ function drawBBTContent(ctx, w, h, info) {
                         <div class="flex gap-2 flex-wrap">
                             <button onclick="window.app.shareExamLink('${e.id}')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-extrabold shadow-xs flex items-center transition">
                                 <i class="fa-solid fa-link mr-1.5"></i>Lấy Link & Mã Thi
+                            </button>
+                            <button onclick="window.app.toggleExamRetake('${e.id}')" class="bg-amber-50 hover:bg-amber-100 text-amber-800 px-3 py-2 rounded-xl text-xs font-bold border border-amber-200">
+                                <i class="fa-solid fa-rotate mr-1"></i>${e.retakeEnabled ? 'Tắt thi lại' : 'Cho thi lại'}
                             </button>
                             <button onclick="window.app.openTeacherViewExamFile('${e.id}')" class="bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition">
                                 <i class="fa-solid fa-eye mr-1"></i>Xem Đề
@@ -3445,6 +3510,14 @@ function drawBBTContent(ctx, w, h, info) {
             const exam = state.exams.find(e => String(e.id) === String(state.activeExamId));
             if (!exam) return;
             const codeData = exam.codes[code];
+            if (state.sessionRole !== 'student' || !state.currentStudent) return;
+            const alreadySubmitted = state.gradeBook.some(g => String(g.examId) === String(exam.id) &&
+                String(g.studentSbd).toLowerCase() === String(state.currentStudent.sbd).toLowerCase() &&
+                String(g.studentClass).toLowerCase() === String(state.currentStudent.class).toLowerCase());
+            if (alreadySubmitted && !exam.retakeEnabled) {
+                showNotification('Em đã nộp bài. Giáo viên chưa cho phép thi lại.', 'warning');
+                return;
+            }
 
             document.getElementById('taking-exam-title').innerText = `${exam.title} (${exam.subject})`;
             document.getElementById('taking-student-name').innerText = state.currentStudent.name;
@@ -3776,6 +3849,7 @@ function drawBBTContent(ctx, w, h, info) {
             submitChangePassword,
             logoutCurrentAccount,
             switchTeacherTab,
+            toggleExamRetake,
             switchStudentTab,
             openCreateExamModal,
             applyPresetStructure,
