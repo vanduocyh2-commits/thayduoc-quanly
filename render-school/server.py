@@ -96,10 +96,17 @@ def retake_exam(base,bank,seen):
   original=str(q.get('sourceBankId') or q.get('bankId') or q.get('id') or '')
   candidates=[]
   for row in bank:
-   b=json.loads(row['data']);bid=str(row['id'])
+   try:
+    b=json.loads(row['data']);bid=str(row['id'])
+    if not isinstance(b,dict):continue
+   except (ValueError, TypeError, KeyError):
+    continue
    if bid in used or bid in seen or bid==original:continue
    if any(norm(b.get(k))!=norm(q.get(k) or (base.get(k) if k in ('grade','subject','curriculum') else '')) for k in ('grade','subject','curriculum','chapter','lesson','type','level')):continue
-   if abs(float(b.get('points') or 0)-float(q.get('points') or 0))>0.001:continue
+   try:
+    if abs(float(b.get('points') or 0)-float(q.get('points') or 0))>0.001:continue
+   except (ValueError, TypeError, OverflowError):
+    continue
    if not str(b.get('text') or '').strip():continue
    if b.get('type') in ('quiz','truefalse','short'):
     try:validate_auto_question(b)
