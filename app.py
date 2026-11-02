@@ -1,6 +1,7 @@
 import os
 import json
 from flask import Flask, send_from_directory, request, jsonify
+import hmac
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 DB_FILE = 'database.json'
