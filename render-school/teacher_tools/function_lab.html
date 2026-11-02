@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Lớp Toán Thầy Được - Khảo Sát & Bảng Biến Thiên </title>
+<style>
+  * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 0; }
+  body { background: #eaedf1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; touch-action: none; }
+  header { background: #0d47a1; color: #fff; padding: 10px 15px; font-size: 15px; font-weight: bold; text-align: center; user-select: none; }
+  .container { display: flex; flex: 1; overflow: hidden; }
+  
+  .sidebar { width: 195px; background: #dfe4ea; border-right: 1px solid #bcc5cf; display: flex; flex-direction: column; padding: 6px; gap: 5px; overflow-y: auto; user-select: none; }
+  .menu-group-title { font-size: 11px; font-weight: bold; color: #475569; margin-top: 6px; margin-bottom: 2px; text-transform: uppercase; padding-left: 4px; }
+  .btn-type { padding: 8px 6px; font-size: 12.5px; font-weight: 600; border: 1px solid #a4b0be; border-radius: 4px; background: #fff; cursor: pointer; text-align: left; }
+  .btn-type.active { background: #2980b9; color: #fff; border-color: #1c5982; }
+  .btn-type.custom { border-color: #f59e0b; color: #b45309; }
+  .btn-type.custom.active { background: #d97706; color: #fff; border-color: #b45309; }
+  
+  .main { flex: 1; display: flex; flex-direction: column; padding: 8px; overflow: hidden; gap: 8px; position: relative; }
+  .input-panel { background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; user-select: none; }
+  .formula-label { color: #c0392b; font-weight: bold; margin-bottom: 8px; font-size: 14px; }
+  .inputs-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .input-item { display: flex; align-items: center; gap: 4px; font-weight: bold; font-size: 14px; }
+  .input-item input { width: 50px; padding: 6px 4px; text-align: center; border: 1px solid #94a3b8; border-radius: 4px; font-size: 14px; }
+  .custom-input { width: 100% !important; max-width: 420px; text-align: left !important; padding: 6px 10px !important; font-family: monospace; font-size: 15px; }
+  
+  .actions { display: flex; gap: 8px; user-select: none; align-items: center; flex-wrap: wrap; }
+  .btn-action { padding: 9px 15px; font-size: 13px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; color: white; }
+  .btn-draw { background: #16a34a; }
+  .btn-bbt { background: #0284c7; }
+  .btn-save { background: #d97706; }
+  .edit-hint { font-size: 12px; color: #475569; margin-left: 4px; font-weight: 500; }
+  
+  .display-panel { flex: 1; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; position: relative; overflow: hidden; display: flex; justify-content: center; align-items: center; cursor: grab; }
+  .display-panel:active { cursor: grabbing; }
+  canvas { display: block; background: #ffffff; }
+
+  .control-cluster { position: absolute; left: 16px; bottom: 16px; background: rgba(255, 255, 255, 0.96); padding: 10px 12px; border-radius: 8px; border: 1px solid #cbd5e1; box-shadow: 0 4px 8px rgba(0,0,0,0.12); display: flex; flex-direction: column; gap: 8px; z-index: 10; font-size: 12px; font-weight: bold; color: #334155; user-select: none; }
+  .control-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .control-row input[type="range"] { width: 110px; }
+  .btn-mini-reset { padding: 4px 8px; font-size: 11px; border: 1px solid #94a3b8; border-radius: 4px; background: #f1f5f9; cursor: pointer; text-align: center; width: 100%; }
+
+  @media (max-width: 768px) {
+    .container { flex-direction: column; }
+    .sidebar { width: 100%; height: auto; flex-direction: row; overflow-x: auto; border-right: none; border-bottom: 1px solid #ccc; padding: 5px; white-space: nowrap; }
+    .btn-type { flex-shrink: 0; }
+    .menu-group-title { display: none; }
+  }
+.function-value-editor{margin:auto;border:1px solid #94a3b8;border-radius:10px;padding:20px;width:min(380px,90vw)}.function-value-editor::backdrop{background:#0005}.function-value-editor label{display:grid;gap:12px}.function-value-editor input{padding:9px;font-size:16px;width:100%}.function-value-editor form>div{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}.function-value-editor button{padding:8px 18px;cursor:pointer}
+</style>
+</head>
+<body>
+
+<header>Lớp Toán Thầy Được - Khảo Sát & Bảng Biến Thiên</header>
+
+<div class="container">
+  <div class="sidebar">
+    <div class="menu-group-title">Hàm Phân thức (Lớp 12)</div>
+    <button class="btn-type" onclick="selectType('frac1')">Bậc 1 / Bậc 1</button>
+    <button class="btn-type active" onclick="selectType('frac2')">Bậc 2 / Bậc 1 (Có TC Xiên)</button>
+
+    <div class="menu-group-title">Đa thức & Đại số</div>
+    <button class="btn-type" onclick="selectType('linear')">Bậc 1 (y = ax+b)</button>
+    <button class="btn-type" onclick="selectType('parabol')">Bậc 2 (Parabol)</button>
+    <button class="btn-type" onclick="selectType('cubic')">Hàm Bậc 3</button>
+    <button class="btn-type" onclick="selectType('quartic')">Trùng phương bậc 4</button>
+
+    <div class="menu-group-title">Căn thức & Mũ Log</div>
+    <button class="btn-type" onclick="selectType('sqrt2')">Căn bậc hai (y = √x)</button>
+    <button class="btn-type" onclick="selectType('exponential')">Hàm Mũ (y = aˣ)</button>
+    <button class="btn-type" onclick="selectType('logarithm')">Hàm Logarit (y = logₐx)</button>
+
+    <div class="menu-group-title">Lượng giác</div>
+    <button class="btn-type" onclick="selectType('sin')">Hàm số Sin</button>
+    <button class="btn-type" onclick="selectType('cos')">Hàm số Cos</button>
+
+    <div class="menu-group-title">Tùy chọn</div>
+    <button class="btn-type custom" onclick="selectType('custom')">★ Hàm bất kì</button>
+  </div>
+
+  <div class="main">
+    <div class="input-panel">
+      <div id="formula-text" class="formula-label"></div>
+      <div id="inputs-container" class="inputs-row"></div>
+    </div>
+
+    <div class="actions">
+      <button class="btn-action btn-bbt" onclick="currentMode='bbt'; resetTransform(); renderView();">Bảng biến thiên</button>
+      <button class="btn-action btn-draw" onclick="currentMode='plot'; resetTransform(); renderView();">Đồ thị & Điểm M</button>
+      <button class="btn-action btn-save" onclick="saveCanvasImage()">📸 Lưu hình ảnh</button>
+      <span class="edit-hint">💡 Chạm đúp số để sửa trực tiếp</span>
+    </div>
+
+    <div class="display-panel" id="display-wrapper">
+      <canvas id="main-canvas"></canvas>
+
+      <div class="control-cluster">
+        <div class="control-row" id="anim-box" style="display:none;">
+          <span>Điểm M(x):</span>
+          <input type="range" id="mXRange" min="-10" max="10" step="0.1" value="2" oninput="renderView()">
+          <span id="mCoordVal" style="min-width:55px; text-align:right;">(2, ?)</span>
+        </div>
+        <div class="control-row">
+          <span>Rộng (X):</span>
+          <input type="range" id="scaleXRange" min="0.3" max="3" step="0.05" value="1" oninput="onScaleChange()">
+        </div>
+        <div class="control-row">
+          <span>Cao (Y):</span>
+          <input type="range" id="scaleYRange" min="0.4" max="3" step="0.05" value="1" oninput="onScaleChange()">
+        </div>
+        <button class="btn-mini-reset" onclick="resetTransform(); renderView();">Đặt lại góc nhìn ⟲</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentType = 'frac2';
+let currentMode = 'bbt';
+
+let transform = { scaleX: 1.0, scaleY: 1.0, panX: 0, panY: 0 };
+let editableTexts = [];
+
+const typeConfigs = {
+  frac1: { label: "Dạng: y = (ax + b) / (cx + d)", params: ['a', 'b', 'c', 'd'], default: { a: 2, b: 1, c: 1, d: -1 } },
+  frac2: { label: "Dạng: y = (ax² + bx + c) / (dx + e)", params: ['a', 'b', 'c', 'd', 'e'], default: { a: 1, b: 2, c: -2, d: 1, e: -1 } },
+  linear: { label: "Dạng: y = ax + b", params: ['a', 'b'], default: { a: 2, b: -3 } },
+  parabol: { label: "Dạng: y = ax² + bx + c", params: ['a', 'b', 'c'], default: { a: 1, b: 2, c: 3 } },
+  cubic: { label: "Dạng: y = ax³ + bx² + cx + d", params: ['a', 'b', 'c', 'd'], default: { a: 1, b: -3, c: 0, d: 2 } },
+  quartic: { label: "Dạng: y = ax⁴ + bx² + c", params: ['a', 'b', 'c'], default: { a: 1, b: -2, c: -1 } },
+  sqrt2: { label: "Dạng: y = a·√(x + b) + c", params: ['a', 'b', 'c'], default: { a: 1, b: 0, c: 0 } },
+  exponential: { label: "Dạng: y = aˣ (a > 0, a ≠ 1)", params: ['a'], default: { a: 2 } },
+  logarithm: { label: "Dạng: y = logₐ(x) (a > 0, a ≠ 1)", params: ['a'], default: { a: 2 } },
+  sin: { label: "Dạng: y = a·sin(x)", params: ['a'], default: { a: 1 } },
+  cos: { label: "Dạng: y = a·cos(x)", params: ['a'], default: { a: 1 } },
+  custom: { label: "Nhập hàm tùy ý (ví dụ: (x^2+2*x-2)/(x-1), sqrt(x),...)", params: ['expr'], default: { expr: "(x^2+2*x-2)/(x-1)" } }
+};
+
+function selectType(type) {
+  currentType = type;
+  document.querySelectorAll('.btn-type').forEach(b => b.classList.remove('active'));
+  const btn = Array.from(document.querySelectorAll('.btn-type')).find(b => b.getAttribute('onclick')?.includes(`'${type}'`));
+  if (btn) btn.classList.add('active');
+
+  const conf = typeConfigs[type];
+  document.getElementById('formula-text').innerText = conf.label;
+
+  const container = document.getElementById('inputs-container');
+  container.innerHTML = '';
+  
+  if (type === 'custom') {
+    container.innerHTML = `
+      <div class="input-item" style="width: 100%;">
+        y = <input type="text" id="inp_expr" class="custom-input" value="${conf.default.expr}" placeholder="Nhập hàm số f(x)..." oninput="renderView()">
+      </div>
+    `;
+  } else {
+    conf.params.forEach(p => {
+      container.innerHTML += `
+        <div class="input-item">
+          ${p} = <input type="number" id="inp_${p}" value="${conf.default[p] ?? 1}" oninput="renderView()">
+        </div>
+      `;
+    });
+  }
+  resetTransform();
+  renderView();
+}
+
+function getVal(p) { return parseFloat(document.getElementById(`inp_${p}`)?.value || 0); }
+function setVal(p, val) {
+  const el = document.getElementById(`inp_${p}`);
+  if (el) { el.value = val; el.dispatchEvent(new Event('input')); }
+}
+function getCustomExpr() { return document.getElementById('inp_expr')?.value.trim() || "x"; }
+
+function formatNum(num) {
+  if (isNaN(num) || !isFinite(num)) return "";
+  if (Math.abs(num) < 1e-6) return "0";
+  return Number.isInteger(num) ? num.toString() : parseFloat(num.toFixed(2)).toString();
+}
+
+function formatPolynomial(terms) {
+  let res = "";
+  for (let i = 0; i < terms.length; i++) {
+    let c = terms[i].coeff, p = terms[i].power;
+    if (Math.abs(c) < 1e-6) continue;
+    let sign = (res === "") ? (c < 0 ? "-" : "") : (c < 0 ? " - " : " + ");
+    let absC = Math.abs(c);
+    let strCoeff = (p === 0) ? formatNum(absC) : (Math.abs(absC - 1) < 1e-6 ? "" : formatNum(absC));
+    let strX = p === 0 ? "" : (p === 1 ? "x" : `x${superscript(p)}`);
+    res += sign + strCoeff + strX;
+  }
+  return res === "" ? "0" : res;
+}
+
+function superscript(p) {
+  const map = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵' };
+  return p.toString().split('').map(char => map[char] || char).join('');
+}
+
+function subscript(p) {
+  const map = { '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉' };
+  return p.toString().split('').map(char => map[char] || char).join('');
+}
+
+function getPrettyFormula() {
+  if (currentType === 'linear') return "y = " + formatPolynomial([{ coeff: getVal('a'), power: 1 }, { coeff: getVal('b'), power: 0 }]);
+  if (currentType === 'parabol') return "y = " + formatPolynomial([{ coeff: getVal('a'), power: 2 }, { coeff: getVal('b'), power: 1 }, { coeff: getVal('c'), power: 0 }]);
+  if (currentType === 'cubic') return "y = " + formatPolynomial([{ coeff: getVal('a'), power: 3 }, { coeff: getVal('b'), power: 2 }, { coeff: getVal('c'), power: 1 }, { coeff: getVal('d'), power: 0 }]);
+  if (currentType === 'quartic') return "y = " + formatPolynomial([{ coeff: getVal('a'), power: 4 }, { coeff: getVal('b'), power: 2 }, { coeff: getVal('c'), power: 0 }]);
+  if (currentType === 'frac1') {
+    const tu = formatPolynomial([{ coeff: getVal('a'), power: 1 }, { coeff: getVal('b'), power: 0 }]);
+    const mau = formatPolynomial([{ coeff: getVal('c'), power: 1 }, { coeff: getVal('d'), power: 0 }]);
+    return `y = (${tu}) / (${mau})`;
+  }
+  if (currentType === 'frac2') {
+    const tu = formatPolynomial([{ coeff: getVal('a'), power: 2 }, { coeff: getVal('b'), power: 1 }, { coeff: getVal('c'), power: 0 }]);
+    const mau = formatPolynomial([{ coeff: getVal('d'), power: 1 }, { coeff: getVal('e'), power: 0 }]);
+    return `y = (${tu}) / (${mau})`;
+  }
+  if (currentType === 'sqrt2') return `y = ${getVal('a')}·√(x + ${getVal('b')}) + ${getVal('c')}`;
+  if (currentType === 'exponential') return `y = ${getVal('a')}ˣ`;
+  if (currentType === 'logarithm') return `y = log${subscript(getVal('a'))}(x)`;
+  if (currentType === 'sin') return `y = ${getVal('a')}·sin(x)`;
+  if (currentType === 'cos') return `y = ${getVal('a')}·cos(x)`;
+  if (currentType === 'custom') return "y = " + getCustomExpr();
+  return "y = f(x)";
+}
+
+function compileMathExpression(exprStr) {
+  try {
+    if (typeof exprStr !== 'string' || exprStr.length > 1000) throw Error('Biểu thức quá dài');
+    const input=exprStr.toLowerCase().replace(/\*\*/g,'^');
+    const tokens=[];const token=/\s*(?:(\d*\.\d+|\d+\.?\d*)(?:e([+-]?\d+))?|([a-z]+)|([+*/^(),-]))/gy;
+    let pos=0;
+    while(pos<input.length){if(!input.slice(pos).trim())break;token.lastIndex=pos;const m=token.exec(input);if(!m||tokens.length>256)throw Error('Biểu thức không hợp lệ');tokens.push(m[1]!==undefined?{n:Number(m[1]+(m[2]?'e'+m[2]:''))}:{v:m[3]||m[4]});pos=token.lastIndex;}
+    let i=0,depth=0;const peek=()=>tokens[i]?.v,take=v=>peek()===v?(i++,true):false;
+    const functions={sin:Math.sin,cos:Math.cos,tan:Math.tan,sqrt:Math.sqrt,abs:Math.abs,ln:Math.log,log:(x,b)=>b===undefined?Math.log(x):Math.log(x)/Math.log(b),exp:Math.exp};
+    function primary(){if(++depth>32)throw Error('Biểu thức lồng quá sâu');let f;const t=tokens[i++];if(!t)throw Error('Thiếu biểu thức');
+      if(t.n!==undefined){const n=t.n;f=()=>n;}
+      else if(t.v==='x')f=x=>x;
+      else if(t.v==='pi'||t.v==='e'){const n=t.v==='pi'?Math.PI:Math.E;f=()=>n;}
+      else if(t.v==='('){f=sum();if(!take(')'))throw Error('Thiếu dấu ngoặc');}
+      else if(Object.hasOwn(functions,t.v)){if(!take('('))throw Error('Thiếu dấu ngoặc hàm');const args=[sum()];if(take(','))args.push(sum());if(!take(')')||(args.length===2&&t.v!=='log'))throw Error('Tham số không hợp lệ');const fn=functions[t.v];f=x=>fn(...args.map(a=>a(x)));}
+      else throw Error('Tên hàm không hợp lệ');--depth;return f;}
+    function power(){const left=primary();if(take('^')){const right=unary();return x=>Math.pow(left(x),right(x));}return left;}
+    function unary(){if(take('+'))return unary();if(take('-')){const f=unary();return x=>-f(x);}return power();}
+    function product(){let left=unary();while(i<tokens.length){let op=peek();if(op==='*'||op==='/')i++;else if(op==='('||op==='x'||op==='pi'||op==='e'||Object.hasOwn(functions,op))op='*';else break;const a=left,b=unary();left=op==='*'?x=>a(x)*b(x):x=>a(x)/b(x);}return left;}
+    function sum(){let left=product();while(peek()==='+'||peek()==='-'){const op=tokens[i++].v,a=left,b=product();left=op==='+'?x=>a(x)+b(x):x=>a(x)-b(x);}return left;}
+    const result=sum();if(i!==tokens.length)throw Error('Biểu thức chưa đúng');return result;
+  } catch {return ()=>NaN;}
+}
+
+function getMathFunction() {
+  if (currentType === 'linear') { const a = getVal('a'), b = getVal('b'); return (x) => a * x + b; }
+  if (currentType === 'parabol') { const a = getVal('a'), b = getVal('b'), c = getVal('c'); return (x) => a * x * x + b * x + c; }
+  if (currentType === 'cubic') { const a = getVal('a'), b = getVal('b'), c = getVal('c'), d = getVal('d'); return (x) => a * x * x * x + b * x * x + c * x + d; }
+  if (currentType === 'quartic') { const a = getVal('a'), b = getVal('b'), c = getVal('c'); return (x) => a * Math.pow(x, 4) + b * x * x + c; }
+  if (currentType === 'frac1') { const a = getVal('a'), b = getVal('b'), c = getVal('c'), d = getVal('d'); return (x) => (a * x + b) / (c * x + d); }
+  if (currentType === 'frac2') { const a = getVal('a'), b = getVal('b'), c = getVal('c'), d = getVal('d'), e = getVal('e'); return (x) => (a * x * x + b * x + c) / (d * x + e); }
+  if (currentType === 'sqrt2') { const a = getVal('a'), b = getVal('b'), c = getVal('c'); return (x) => a * Math.sqrt(x + b) + c; }
+  if (currentType === 'exponential') { const a = getVal('a'); return (x) => Math.pow(a, x); }
+  if (currentType === 'logarithm') { const a = getVal('a'); return (x) => x > 0 ? (Math.log(x) / Math.log(a)) : NaN; }
+  if (currentType === 'sin') { const a = getVal('a'); return (x) => a * Math.sin(x); }
+  if (currentType === 'cos') { const a = getVal('a'); return (x) => a * Math.cos(x); }
+  if (currentType === 'custom') return compileMathExpression(getCustomExpr());
+  return (x) => 0;
+}
+
+function resetTransform() { 
+  transform = { scaleX: 1.0, scaleY: 1.0, panX: 0, panY: 0 }; 
+  document.getElementById('scaleXRange').value = "1";
+  document.getElementById('scaleYRange').value = "1";
+}
+
+function onScaleChange() {
+  transform.scaleX = parseFloat(document.getElementById('scaleXRange').value);
+  transform.scaleY = parseFloat(document.getElementById('scaleYRange').value);
+  renderView();
+}
+
+function zoomCenter(factor) {
+  transform.scaleX *= factor;
+  transform.scaleY *= factor;
+  document.getElementById('scaleXRange').value = Math.min(3, Math.max(0.3, transform.scaleX));
+  document.getElementById('scaleYRange').value = Math.min(3, Math.max(0.4, transform.scaleY));
+  renderView();
+}
+
+function renderView() {
+  const canvas = document.getElementById('main-canvas');
+  const wrapper = document.getElementById('display-wrapper');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+
+  const w = wrapper.clientWidth;
+  const h = wrapper.clientHeight;
+
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + "px";
+  canvas.style.height = h + "px";
+
+  editableTexts = [];
+  const animBox = document.getElementById('anim-box');
+  if (currentMode === 'plot') {
+    animBox.style.display = 'flex';
+  } else {
+    animBox.style.display = 'none';
+  }
+
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  if (currentMode === 'plot') {
+    drawGraphContent(ctx, w, h);
+  } else {
+    drawBBTContent(ctx, w, h);
+  }
+
+  ctx.restore();
+}
+
+function getAdaptiveStep(pixelSpan, mathSpan, minPixelDistance = 55) {
+  const roughCount = pixelSpan / minPixelDistance;
+  const rawStep = mathSpan / roughCount;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const normalized = rawStep / magnitude;
+
+  let step;
+  if (normalized < 1.5) step = 1 * magnitude;
+  else if (normalized < 3.5) step = 2 * magnitude;
+  else if (normalized < 7.5) step = 5 * magnitude;
+  else step = 10 * magnitude;
+  return step;
+}
+
+// =================================================================
+// 1. VẼ ĐỒ THỊ CHUẨN VỚI LƯỚI RÕ NÉT
+// =================================================================
+function drawGraphContent(ctx, w, h) {
+  let xMin = -15, xMax = 15;
+  let yMin = -15, yMax = 15;
+
+  const toScreenX = (x) => transform.panX + (((x - xMin) / (xMax - xMin)) * w) * transform.scaleX;
+  const toScreenY = (y) => transform.panY + (h - ((y - yMin) / (yMax - yMin)) * h) * transform.scaleY;
+
+  const toMathX = (px) => xMin + ((px - transform.panX) / (w * transform.scaleX)) * (xMax - xMin);
+  const toMathY = (py) => yMin + ((h - (py - transform.panY) / transform.scaleY) / h) * (yMax - yMin);
+
+  const origX = toScreenX(0);
+  const origY = toScreenY(0);
+
+  const visibleXMin = toMathX(0);
+  const visibleXMax = toMathX(w);
+  const visibleYMin = toMathY(h);
+  const visibleYMax = toMathY(0);
+
+  const stepX = getAdaptiveStep(w, visibleXMax - visibleXMin, 60);
+  const stepY = getAdaptiveStep(h, visibleYMax - visibleYMin, 50);
+
+  // LƯỚI TỌA ĐỘ RÕ NÉT HƠN (Tăng độ đậm và độ tương phản)
+  ctx.strokeStyle = "#cbd5e1";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+
+  const startGridX = Math.floor(visibleXMin / stepX) * stepX;
+  for (let x = startGridX; x <= visibleXMax + stepX; x += stepX) {
+    if (Math.abs(x) < 1e-6) continue;
+    const sx = toScreenX(x);
+    ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, h); ctx.stroke();
+  }
+
+  const startGridY = Math.floor(visibleYMin / stepY) * stepY;
+  for (let y = startGridY; y <= visibleYMax + stepY; y += stepY) {
+    if (Math.abs(y) < 1e-6) continue;
+    const sy = toScreenY(y);
+    ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(w, sy); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Trục Ox, Oy
+  ctx.strokeStyle = "#0f172a";
+  ctx.lineWidth = 2.2;
+
+  if (origY >= 0 && origY <= h) {
+    ctx.beginPath(); ctx.moveTo(0, origY); ctx.lineTo(w - 14, origY); ctx.stroke();
+    drawSolidArrow(ctx, w - 18, origY, w - 3, origY);
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "italic bold 15px 'Times New Roman', serif";
+    ctx.textAlign = "right";
+    ctx.fillText("x", w - 8, origY - 8);
+  }
+
+  if (origX >= 0 && origX <= w) {
+    ctx.beginPath(); ctx.moveTo(origX, h); ctx.lineTo(origX, 14); ctx.stroke();
+    drawSolidArrow(ctx, origX, 22, origX, 5);
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "italic bold 15px 'Times New Roman', serif";
+    ctx.textAlign = "left";
+    ctx.fillText("y", origX + 8, 22);
+  }
+
+  // Số đo
+  ctx.fillStyle = "#334155";
+  ctx.font = "11px -apple-system, sans-serif";
+
+  const labelYPos = Math.min(Math.max(origY + 16, 20), h - 8);
+  ctx.textAlign = "center";
+  for (let x = startGridX; x <= visibleXMax + stepX; x += stepX) {
+    if (Math.abs(x) < 1e-6) continue;
+    const sx = toScreenX(x);
+    if (sx >= 15 && sx <= w - 25) {
+      if (origY >= 0 && origY <= h) {
+        ctx.beginPath(); ctx.moveTo(sx, origY - 3); ctx.lineTo(sx, origY + 3);
+        ctx.strokeStyle = "#000"; ctx.lineWidth = 1; ctx.stroke();
+      }
+      ctx.fillText(formatNum(x), sx, labelYPos);
+    }
+  }
+
+  const labelXPos = Math.min(Math.max(origX - 6, 28), w - 8);
+  ctx.textAlign = "right";
+  for (let y = startGridY; y <= visibleYMax + stepY; y += stepY) {
+    if (Math.abs(y) < 1e-6) continue;
+    const sy = toScreenY(y);
+    if (sy >= 22 && sy <= h - 10) {
+      if (origX >= 0 && origX <= w) {
+        ctx.beginPath(); ctx.moveTo(origX - 3, sy); ctx.lineTo(origX + 3, sy);
+        ctx.strokeStyle = "#000"; ctx.lineWidth = 1; ctx.stroke();
+      }
+      ctx.fillText(formatNum(y), labelXPos, sy + 4);
+    }
+  }
+
+  if (origX >= 10 && origX <= w - 10 && origY >= 10 && origY <= h - 10) {
+    ctx.font = "bold 13px -apple-system, sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillText("O", origX - 5, origY + 16);
+  }
+
+  const f = getMathFunction();
+  let asymptotes = [];
+  let obliqueAsymptote = null;
+
+  if (currentType === 'frac1') {
+    const c = getVal('c'), d = getVal('d');
+    asymptotes.push({ type: 'v', val: -d / c });
+    asymptotes.push({ type: 'h', val: getVal('a') / c });
+  } 
+  else if (currentType === 'frac2') {
+    const a = getVal('a'), b = getVal('b'), c = getVal('c'), d = getVal('d'), e = getVal('e');
+    asymptotes.push({ type: 'v', val: -e / d });
+    const slope = a / d;
+    const intercept = (b * d - a * e) / (d * d);
+    obliqueAsymptote = { slope, intercept };
+  } 
+  else if (currentType === 'exponential') {
+    asymptotes.push({ type: 'h', val: 0 });
+  } 
+  else if (currentType === 'logarithm') {
+    asymptotes.push({ type: 'v', val: 0 });
+  }
+
+  // Tiệm cận đứng / ngang
+  ctx.strokeStyle = "#ef4444";
+  ctx.lineWidth = 1.6;
+  ctx.setLineDash([5, 5]);
+  asymptotes.forEach(asym => {
+    if (asym.type === 'v') {
+      const sx = toScreenX(asym.val);
+      ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, h); ctx.stroke();
+    } else if (asym.type === 'h') {
+      const sy = toScreenY(asym.val);
+      ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(w, sy); ctx.stroke();
+    }
+  });
+
+  // Tiệm cận xiên
+  if (obliqueAsymptote) {
+    const x1 = visibleXMin, y1 = obliqueAsymptote.slope * x1 + obliqueAsymptote.intercept;
+    const x2 = visibleXMax, y2 = obliqueAsymptote.slope * x2 + obliqueAsymptote.intercept;
+    ctx.beginPath();
+    ctx.moveTo(toScreenX(x1), toScreenY(y1));
+    ctx.lineTo(toScreenX(x2), toScreenY(y2));
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Vẽ đồ thị
+  ctx.strokeStyle = "#2563eb";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+
+  const stepPx = 0.5;
+  let first = true;
+  let prevPy = NaN;
+
+  for (let px = 0; px <= w; px += stepPx) {
+    const xMath = toMathX(px);
+    const yMath = f(xMath);
+
+    if (isNaN(yMath) || !isFinite(yMath) || Math.abs(yMath) > 1e4) {
+      first = true;
+      continue;
+    }
+    const py = toScreenY(yMath);
+
+    if (!isNaN(prevPy) && Math.abs(py - prevPy) > h * 0.8) {
+      first = true;
+    }
+
+    if (first) {
+      ctx.moveTo(px, py);
+      first = false;
+    } else {
+      ctx.lineTo(px, py);
+    }
+    prevPy = py;
+  }
+  ctx.stroke();
+
+  const mXInput = document.getElementById('mXRange');
+  const mXVal = parseFloat(mXInput.value);
+  const mYVal = f(mXVal);
+  
+  document.getElementById('mCoordVal').innerText = `(${formatNum(mXVal)}, ${formatNum(mYVal)})`;
+
+  if (!isNaN(mYVal) && isFinite(mYVal)) {
+    const mSx = toScreenX(mXVal);
+    const mSy = toScreenY(mYVal);
+
+    ctx.strokeStyle = "#d97706";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(mSx, origY); ctx.lineTo(mSx, mSy); ctx.lineTo(origX, mSy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = "#dc2626";
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(mSx, mSy, 6.5, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#b91c1c";
+    ctx.font = "bold 13px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(`M(${formatNum(mXVal)}; ${formatNum(mYVal)})`, mSx + 10, mSy - 10);
+  }
+
+  const formulaStr = getPrettyFormula();
+  ctx.font = "italic 13px 'Times New Roman', serif";
+  const textWidth = ctx.measureText(formulaStr).width;
+  const legW = Math.max(185, textWidth + 60), legH = 34;
+  const legX = 18, legY = 15;
+  
+  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+  ctx.strokeStyle = "#cbd5e1";
+  ctx.lineWidth = 1;
+  ctx.fillRect(legX, legY, legW, legH);
+  ctx.strokeRect(legX, legY, legW, legH);
+
+  ctx.strokeStyle = "#2563eb";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(legX + 10, legY + legH / 2); ctx.lineTo(legX + 35, legY + legH / 2);
+  ctx.stroke();
+
+  ctx.fillStyle = "#000000";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(formulaStr, legX + 42, legY + legH / 2 + 1);
+
+  editableTexts.push({
+    x: legX, y: legY, w: legW, h: legH,
+    val: formulaStr,
+    param: currentType === 'custom' ? 'expr' : 'a'
+  });
+}
+
+function drawSolidArrow(ctx, fromx, fromy, tox, toy) {
+  const headlen = 11;
+  const angle = Math.atan2(toy - fromy, tox - fromx);
+  ctx.fillStyle = "#000000";
+  ctx.beginPath();
+  ctx.moveTo(tox, toy);
+  ctx.lineTo(tox - headlen * Math.cos(angle - Math.PI / 6), toy - headlen * Math.sin(angle - Math.PI / 6));
+  ctx.lineTo(tox - headlen * Math.cos(angle + Math.PI / 6), toy - headlen * Math.sin(angle + Math.PI / 6));
+  ctx.closePath();
+  ctx.fill();
+}
+
+// =================================================================
+// 2. VẼ BẢNG BIẾN THIÊN CHUẨN SGK
+// =================================================================
+function drawBBTContent(ctx, w, h) {
+  ctx.save();
+  ctx.translate(transform.panX, transform.panY);
+  ctx.scale(transform.scaleX, transform.scaleY);
+
+  const formulaStr = getPrettyFormula();
+  let title = `Bảng biến thiên: ${formulaStr}`;
+
+  let criticalPoints = [];
+  let signs = [];
+
+  if (currentType === 'frac1') {
+    const a = getVal('a'), b = getVal('b'), c = getVal('c'), d = getVal('d');
+    const x0 = -d / c;
+    const yNgang = a / c;
+    const delta = a * d - b * c;
+    const isInc = delta > 0;
+
+    criticalPoints = [
+      { labelX: "-\u221E", yVal: formatNum(yNgang), level: 0.5 },
+      { labelX: formatNum(x0), isUndef: true, yLeft: isInc ? "+\u221E" : "-\u221E", yRight: isInc ? "-\u221E" : "+\u221E" },
+      { labelX: "+\u221E", yVal: formatNum(yNgang), level: 0.5 }
+    ];
+    signs = isInc ? ["+", "+"] : ["-", "-"];
+  }
+  else if (currentType === 'frac2') {
+    const a = getVal('a'), b = getVal('b'), c = getVal('c'), d = getVal('d'), e = getVal('e');
+    const x0 = -e / d; // Tiệm cận đứng
+    const A_d = a * d;
+    const B_d = 2 * a * e;
+    const C_d = b * e - c * d;
+    const delta = B_d * B_d - 4 * A_d * C_d;
+    const f = (x) => (a * x * x + b * x + c) / (d * x + e);
+
+    let pts = [];
+    pts.push({ x: x0, isUndef: true });
+
+    if (delta > 0 && Math.abs(A_d) > 1e-6) {
+      let x1 = (-B_d - Math.sqrt(delta)) / (2 * A_d);
+      let x2 = (-B_d + Math.sqrt(delta)) / (2 * A_d);
+      if (x1 > x2) [x1, x2] = [x2, x1];
+      
+      if (Math.abs(x1 - x0) > 1e-4) {
+        // Kiểm tra xem x1 thuộc nhánh trái hay phải của TCĐ để gán cực đại/cực tiểu đúng chuẩn SGK
+        let isMax1 = (x1 < x0) ? (a * d > 0) : (a * d < 0);
+        pts.push({ x: x1, y: f(x1), isZero: true, level: isMax1 ? 1.0 : 0.0 });
+      }
+      if (Math.abs(x2 - x0) > 1e-4) {
+        let isMax2 = (x2 < x0) ? (a * d > 0) : (a * d < 0);
+        pts.push({ x: x2, y: f(x2), isZero: true, level: isMax2 ? 1.0 : 0.0 });
+      }
+    }
+    pts.sort((p1, p2) => p1.x - p2.x);
+
+    const limNegInf = (d > 0) ? "-\u221E" : "+\u221E";
+    const limPosInf = (d > 0) ? "+\u221E" : "-\u221E";
+
+    criticalPoints.push({ labelX: "-\u221E", yVal: limNegInf, level: (d > 0) ? 0.0 : 1.0 });
+
+    pts.forEach(p => {
+      if (p.isUndef) {
+        const yL = f(p.x - 0.01);
+        const yR = f(p.x + 0.01);
+        criticalPoints.push({
+          labelX: formatNum(p.x),
+          isUndef: true,
+          yLeft: yL > 0 ? "+\u221E" : "-\u221E",
+          yRight: yR > 0 ? "+\u221E" : "-\u221E"
+        });
+      } else {
+        criticalPoints.push({
+          labelX: formatNum(p.x),
+          yVal: formatNum(p.y),
+          level: p.level ?? 0.5,
+          isZero: true,
+          param: 'c',
+          isYVal: true
+        });
+      }
+    });
+
+    criticalPoints.push({ labelX: "+\u221E", yVal: limPosInf, level: (d > 0) ? 1.0 : 0.0 });
+
+    const fPrime = (x) => {
+      const num = A_d * x * x + B_d * x + C_d;
+      const den = (d * x + e) * (d * x + e);
+      return num / den;
+    };
+
+    for (let i = 0; i < criticalPoints.length - 1; i++) {
+      let xL = criticalPoints[i].labelX === "-\u221E" ? -100 : parseFloat(criticalPoints[i].labelX);
+      let xR = criticalPoints[i+1].labelX === "+\u221E" ? 100 : parseFloat(criticalPoints[i+1].labelX);
+      if (isNaN(xL)) xL = x0 - 1;
+      if (isNaN(xR)) xR = x0 + 1;
+      let mid = (xL + xR) / 2;
+      if (Math.abs(mid - x0) < 1e-3) mid = (xL + x0) / 2;
+      const val = fPrime(mid);
+      signs.push(val >= 0 ? "+" : "-");
+    }
+  }
+  else if (currentType === 'linear') {
+    const a = getVal('a');
+    criticalPoints = [
+      { labelX: "-\u221E", yVal: a > 0 ? "-\u221E" : "+\u221E", level: a > 0 ? 0.0 : 1.0 },
+      { labelX: "+\u221E", yVal: a > 0 ? "+\u221E" : "-\u221E", level: a > 0 ? 1.0 : 0.0 }
+    ];
+    signs = [a > 0 ? "+" : "-"];
+  }
+  else if (currentType === 'parabol') {
+    const a = getVal('a'), b = getVal('b'), c = getVal('c');
+    const x0 = -b / (2 * a);
+    const y0 = a * x0 * x0 + b * x0 + c;
+    criticalPoints = [
+      { labelX: "-\u221E", yVal: a > 0 ? "+\u221E" : "-\u221E", level: a > 0 ? 1.0 : 0.0 },
+      { labelX: formatNum(x0), yVal: formatNum(y0), level: a > 0 ? 0.0 : 1.0, isZero: true, param: 'c', isYVal: true },
+      { labelX: "+\u221E", yVal: a > 0 ? "+\u221E" : "-\u221E", level: a > 0 ? 1.0 : 0.0 }
+    ];
+    signs = a > 0 ? ["-", "+"] : ["+", "-"];
+  }
+  else if (currentType === 'cubic') {
+    const a = getVal('a'), b = getVal('b'), c = getVal('c'), d = getVal('d');
+    const A = 3 * a, B = 2 * b, C = c;
+    const delta = B * B - 4 * A * C;
+    const f = (x) => a * x * x * x + b * x * x + c * x + d;
+
+    if (delta <= 0) {
+      criticalPoints = [
+        { labelX: "-\u221E", yVal: a > 0 ? "-\u221E" : "+\u221E", level: a > 0 ? 0.0 : 1.0 },
+        { labelX: "+\u221E", yVal: a > 0 ? "+\u221E" : "-\u221E", level: a > 0 ? 1.0 : 0.0 }
+      ];
+      signs = [a > 0 ? "+" : "-"];
+    } else {
+      let x1 = (-B - Math.sqrt(delta)) / (2 * A);
+      let x2 = (-B + Math.sqrt(delta)) / (2 * A);
+      if (x1 > x2) [x1, x2] = [x2, x1];
+
+      criticalPoints = [
+        { labelX: "-\u221E", yVal: a > 0 ? "-\u221E" : "+\u221E", level: a > 0 ? 0.0 : 1.0 },
+        { labelX: formatNum(x1), yVal: formatNum(f(x1)), level: a > 0 ? 1.0 : 0.0, isZero: true, param: 'd', isYVal: true },
+        { labelX: formatNum(x2), yVal: formatNum(f(x2)), level: a > 0 ? 0.0 : 1.0, isZero: true, param: 'd', isYVal: true },
+        { labelX: "+\u221E", yVal: a > 0 ? "+\u221E" : "-\u221E", level: a > 0 ? 1.0 : 0.0 }
+      ];
+      signs = a > 0 ? ["+", "-", "+"] : ["-", "+", "-"];
+    }
+  }
+  else if (currentType === 'quartic') {
+    const a = getVal('a'), b = getVal('b'), c = getVal('c');
+    const f = (x) => a * Math.pow(x, 4) + b * x * x + c;
+
+    if (-b / (2 * a) <= 0) {
+      criticalPoints = [
+        { labelX: "-\u221E", yVal: a > 0 ? "+\u221E" : "-\u221E", level: a > 0 ? 1.0 : 0.0 },
+        { labelX: "0", yVal: formatNum(c), level: a > 0 ? 0.0 : 1.0, isZero: true, param: 'c', isYVal: true },
+        { labelX: "+\u221E", yVal: a > 0 ? "+\u221E" : "-\u221E", level: a > 0 ? 1.0 : 0.0 }
+      ];
+      signs = a > 0 ? ["-", "+"] : ["+", "-"];
+    } else {
+      const x0 = Math.sqrt(-b / (2 * a));
+      const yExt = f(x0);
+      const yMid = f(0);
+
+      if (a > 0) {
+        criticalPoints = [
+          { labelX: "-\u221E", yVal: "+\u221E", level: 1.0 },
+          { labelX: formatNum(-x0), yVal: formatNum(yExt), level: 0.0, isZero: true },
+          { labelX: "0", yVal: formatNum(yMid), level: 0.8, isZero: true, param: 'c', isYVal: true },
+          { labelX: formatNum(x0), yVal: formatNum(yExt), level: 0.0, isZero: true },
+          { labelX: "+\u221E", yVal: "+\u221E", level: 1.0 }
+        ];
+        signs = ["-", "+", "-", "+"];
+      } else {
+        criticalPoints = [
+          { labelX: "-\u221E", yVal: "-\u221E", level: 0.0 },
+          { labelX: formatNum(-x0), yVal: formatNum(yExt), level: 1.0, isZero: true },
+          { labelX: "0", yVal: formatNum(yMid), level: 0.2, isZero: true, param: 'c', isYVal: true },
+          { labelX: formatNum(x0), yVal: formatNum(yExt), level: 1.0, isZero: true },
+          { labelX: "+\u221E", yVal: "-\u221E", level: 0.0 }
+        ];
+        signs = ["+", "-", "+", "-"];
+      }
+    }
+  }
+  else if (currentType === 'sqrt2') {
+    const a = getVal('a'), b = getVal('b'), c = getVal('c');
+    const isInc = a > 0;
+    criticalPoints = [
+      { labelX: formatNum(-b), yVal: formatNum(c), level: isInc ? 0.0 : 1.0, param: 'c', isYVal: true },
+      { labelX: "+\u221E", yVal: isInc ? "+\u221E" : "-\u221E", level: isInc ? 1.0 : 0.0 }
+    ];
+    signs = [isInc ? "+" : "-"];
+  }
+  else if (currentType === 'exponential') {
+    const a = getVal('a');
+    const isInc = a > 1;
+    criticalPoints = [
+      { labelX: "-\u221E", yVal: isInc ? "0" : "+\u221E", level: isInc ? 0.0 : 1.0 },
+      { labelX: "+\u221E", yVal: isInc ? "+\u221E" : "0", level: isInc ? 1.0 : 0.0 }
+    ];
+    signs = [isInc ? "+" : "-"];
+  }
+  else if (currentType === 'logarithm') {
+    const a = getVal('a');
+    const isInc = a > 1;
+    criticalPoints = [
+      { labelX: "0", isUndef: true, yLeft: "", yRight: isInc ? "-\u221E" : "+\u221E" },
+      { labelX: "+\u221E", yVal: isInc ? "+\u221E" : "-\u221E", level: isInc ? 1.0 : 0.0 }
+    ];
+    signs = [isInc ? "+" : "-"];
+  }
+  else if (currentType === 'sin') {
+    const a = getVal('a');
+    title += ` (Xét trên chu kỳ [-\u03C0; \u03C0])`;
+    if (a >= 0) {
+      criticalPoints = [
+        { labelX: "-\u03C0", yVal: "0", level: 0.5 },
+        { labelX: "-\u03C0/2", yVal: formatNum(-a), level: 0.0, isZero: true, param: 'a' },
+        { labelX: "\u03C0/2", yVal: formatNum(a), level: 1.0, isZero: true, param: 'a' },
+        { labelX: "\u03C0", yVal: "0", level: 0.5 }
+      ];
+      signs = ["-", "+", "-"];
+    } else {
+      criticalPoints = [
+        { labelX: "-\u03C0", yVal: "0", level: 0.5 },
+        { labelX: "-\u03C0/2", yVal: formatNum(-a), level: 1.0, isZero: true, param: 'a' },
+        { labelX: "\u03C0/2", yVal: formatNum(a), level: 0.0, isZero: true, param: 'a' },
+        { labelX: "\u03C0", yVal: "0", level: 0.5 }
+      ];
+      signs = ["+", "-", "+"];
+    }
+  }
+  else if (currentType === 'cos') {
+    const a = getVal('a');
+    title += ` (Xét trên chu kỳ [0; 2\u03C0])`;
+    if (a >= 0) {
+      criticalPoints = [
+        { labelX: "0", yVal: formatNum(a), level: 1.0, param: 'a' },
+        { labelX: "\u03C0", yVal: formatNum(-a), level: 0.0, isZero: true, param: 'a' },
+        { labelX: "2\u03C0", yVal: formatNum(a), level: 1.0 }
+      ];
+      signs = ["-", "+"];
+    } else {
+      criticalPoints = [
+        { labelX: "0", yVal: formatNum(a), level: 0.0, param: 'a' },
+        { labelX: "\u03C0", yVal: formatNum(-a), level: 1.0, isZero: true, param: 'a' },
+        { labelX: "2\u03C0", yVal: formatNum(a), level: 0.0 }
+      ];
+      signs = ["+", "-"];
+    }
+  }
+  else {
+    criticalPoints = [
+      { labelX: "-\u221E", yVal: "-\u221E", level: 0.0 },
+      { labelX: "+\u221E", yVal: "+\u221E", level: 1.0 }
+    ];
+    signs = ["+"];
+  }
+
+  const tableW = Math.max(700, w - 80);
+  const startX = Math.max(30, (w - tableW) / 2);
+  const startY = 65;
+  const col1W = 100;
+  
+  const hRowX = 42;
+  const hRowYPrime = 42;
+  const hRowY = 160;
+  const totalH = hRowX + hRowYPrime + hRowY;
+
+  ctx.fillStyle = "#003b7a";
+  ctx.font = "bold 18px 'Times New Roman', serif";
+  ctx.textAlign = "center";
+  ctx.fillText(title, startX + tableW / 2, startY - 22);
+
+  ctx.strokeStyle = "#111827";
+  ctx.lineWidth = 1.3;
+
+  ctx.strokeRect(startX, startY, tableW, totalH);
+
+  ctx.beginPath();
+  ctx.moveTo(startX + col1W, startY);
+  ctx.lineTo(startX + col1W, startY + totalH);
+  ctx.moveTo(startX, startY + hRowX);
+  ctx.lineTo(startX + tableW, startY + hRowX);
+  ctx.moveTo(startX, startY + hRowX + hRowYPrime);
+  ctx.lineTo(startX + tableW, startY + hRowX + hRowYPrime);
+  ctx.stroke();
+
+  ctx.fillStyle = "#000000";
+  ctx.font = "italic bold 19px 'Times New Roman', serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("x", startX + col1W / 2, startY + hRowX / 2);
+  ctx.fillText("y '", startX + col1W / 2, startY + hRowX + hRowYPrime / 2);
+  ctx.fillText("y", startX + col1W / 2, startY + hRowX + hRowYPrime + hRowY / 2);
+
+  const contentW = tableW - col1W;
+  const count = criticalPoints.length;
+  const paddingX = 40;
+  const stepCols = (contentW - 2 * paddingX) / Math.max(1, count - 1);
+
+  criticalPoints.forEach((pt, idx) => {
+    pt.drawX = startX + col1W + paddingX + idx * stepCols;
+  });
+
+  ctx.font = "17px 'Times New Roman', serif";
+  criticalPoints.forEach((pt) => {
+    ctx.fillText(pt.labelX, pt.drawX, startY + hRowX / 2 + 1);
+
+    if (pt.isZero) {
+      ctx.fillText("0", pt.drawX, startY + hRowX + hRowYPrime / 2);
+    } else if (pt.isUndef) {
+      const gap = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(pt.drawX - gap, startY + hRowX);
+      ctx.lineTo(pt.drawX - gap, startY + totalH);
+      ctx.moveTo(pt.drawX + gap, startY + hRowX);
+      ctx.lineTo(pt.drawX + gap, startY + totalH);
+      ctx.stroke();
+    }
+  });
+
+  for (let i = 0; i < signs.length; i++) {
+    const xMid = (criticalPoints[i].drawX + criticalPoints[i + 1].drawX) / 2;
+    ctx.font = "bold 18px 'Times New Roman', serif";
+    ctx.fillText(signs[i], xMid, startY + hRowX + hRowYPrime / 2);
+  }
+
+  const yContentTop = startY + hRowX + hRowYPrime;
+  const yTopPos = yContentTop + 24;
+  const yBotPos = yContentTop + hRowY - 24;
+  const getPosY = (lvl) => yBotPos - lvl * (yBotPos - yTopPos);
+
+  ctx.font = "17px 'Times New Roman', serif";
+
+  for (let i = 0; i < criticalPoints.length - 1; i++) {
+    const p1 = criticalPoints[i];
+    const p2 = criticalPoints[i + 1];
+
+    if (!p1.isUndef && !p2.isUndef) {
+      const y1 = getPosY(p1.level ?? 0.5);
+      const y2 = getPosY(p2.level ?? 0.5);
+
+      ctx.fillText(p1.yVal, p1.drawX, y1);
+      if (i === criticalPoints.length - 2) {
+        ctx.fillText(p2.yVal, p2.drawX, y2);
+      }
+      drawSGKArrow(ctx, p1.drawX, y1, p2.drawX, y2, p1.yVal, p2.yVal);
+
+      if (p1.isYVal && p1.param) {
+        editableTexts.push({
+          x: (startX + transform.panX + (p1.drawX - startX) * transform.scaleX) - 25,
+          y: (startY + transform.panY + (y1 - startY) * transform.scaleY) - 20,
+          w: 50, h: 40,
+          val: p1.yVal,
+          param: p1.param,
+          isYVal: true
+        });
+      }
+    } 
+    else if (p2.isUndef) {
+      const y1 = getPosY(p1.level ?? 0.5);
+      const y2 = p2.yLeft.includes("+") ? yTopPos : yBotPos;
+
+      ctx.fillText(p1.yVal, p1.drawX, y1);
+      ctx.fillText(p2.yLeft, p2.drawX - 25, y2);
+      drawSGKArrow(ctx, p1.drawX, y1, p2.drawX - 25, y2, p1.yVal, p2.yLeft);
+    } 
+    else if (p1.isUndef) {
+      const y1 = p1.yRight.includes("+") ? yTopPos : yBotPos;
+      const y2 = getPosY(p2.level ?? 0.5);
+
+      ctx.fillText(p1.yRight, p1.drawX + 25, y1);
+      ctx.fillText(p2.yVal, p2.drawX, y2);
+      drawSGKArrow(ctx, p1.drawX + 25, y1, p2.drawX, y2, p1.yRight, p2.yVal);
+    }
+  }
+
+  ctx.restore();
+}
+
+function drawSGKArrow(ctx, x1, y1, x2, y2, txt1, txt2) {
+  const w1 = ctx.measureText(txt1).width / 2 + 8;
+  const w2 = ctx.measureText(txt2).width / 2 + 8;
+
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const startX = x1 + Math.cos(angle) * w1;
+  const startY = y1 + Math.sin(angle) * (w1 * 0.6);
+  const endX = x2 - Math.cos(angle) * w2;
+  const endY = y2 - Math.sin(angle) * (w2 * 0.6);
+
+  ctx.beginPath();
+  ctx.moveTo(startX, startY);
+  ctx.lineTo(endX, endY);
+  ctx.stroke();
+
+  const headlen = 8.5;
+  ctx.beginPath();
+  ctx.moveTo(endX, endY);
+  ctx.lineTo(endX - headlen * Math.cos(angle - Math.PI / 6), endY - headlen * Math.sin(angle - Math.PI / 6));
+  ctx.lineTo(endX - headlen * Math.cos(angle + Math.PI / 6), endY - headlen * Math.sin(angle + Math.PI / 6));
+  ctx.closePath();
+  ctx.fillStyle = "#111827";
+  ctx.fill();
+}
+
+// =================================================================
+// 3. TƯƠNG TÁC
+// =================================================================
+const panel = document.getElementById('display-wrapper');
+let isDragging = false;
+let startX = 0, startY = 0;
+let initialDistance = 0;
+let initialScaleX = 1.0, initialScaleY = 1.0;
+let lastTapTime = 0;
+
+panel.addEventListener('dblclick', (e) => {
+  const rect = panel.getBoundingClientRect();
+  checkDirectEdit(e.clientX - rect.left, e.clientY - rect.top);
+});
+
+panel.addEventListener('touchend', (e) => {
+  const currentTime = new Date().getTime();
+  const tapLength = currentTime - lastTapTime;
+  if (tapLength < 300 && tapLength > 0) {
+    if (e.changedTouches.length === 1) {
+      const rect = panel.getBoundingClientRect();
+      checkDirectEdit(e.changedTouches[0].clientX - rect.left, e.changedTouches[0].clientY - rect.top);
+    }
+  }
+  lastTapTime = currentTime;
+  isDragging = false;
+  initialDistance = 0;
+});
+
+function checkDirectEdit(px, py) {
+  const item=editableTexts.find(item=>px>=item.x&&px<=item.x+item.w&&py>=item.y&&py<=item.y+item.h);
+  if(!item||document.querySelector('.function-value-editor'))return;
+  const dialog=document.createElement('dialog');dialog.className='function-value-editor';
+  const form=document.createElement('form'),label=document.createElement('label'),input=document.createElement('input'),actions=document.createElement('div'),save=document.createElement('button'),cancel=document.createElement('button');
+  label.textContent='Nhập giá trị mới cho '+item.param;input.value=String(item.val);input.required=true;input.setAttribute('aria-label','Giá trị mới');label.append(input);save.textContent='Lưu';save.type='submit';cancel.textContent='Hủy';cancel.type='button';actions.append(save,cancel);form.append(label,actions);dialog.append(form);document.body.append(dialog);
+  const close=()=>{dialog.close();dialog.remove()};cancel.onclick=close;dialog.addEventListener('cancel',e=>{e.preventDefault();close()});
+  form.onsubmit=e=>{e.preventDefault();const value=input.value.trim();if(!value)return;if(item.param==='expr')document.getElementById('inp_expr').value=value;else {const n=Number(value);if(!Number.isFinite(n)){input.setCustomValidity('Hãy nhập một số hợp lệ.');input.reportValidity();return}setVal(item.param,n)}close();renderView()};input.oninput=()=>input.setCustomValidity('');dialog.showModal();input.focus();input.select();
+}
+
+panel.addEventListener('mousedown', (e) => {
+  if (e.target.closest('.stretch-controls') || e.target.closest('.anim-controls')) return;
+  isDragging = true;
+  startX = e.clientX - transform.panX;
+  startY = e.clientY - transform.panY;
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!isDragging) return;
+  transform.panX = e.clientX - startX;
+  transform.panY = e.clientY - startY;
+  renderView();
+});
+
+window.addEventListener('mouseup', () => { isDragging = false; });
+
+panel.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const rect = panel.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+
+  const factor = e.deltaY < 0 ? 1.15 : 0.85;
+  transform.panX = mouseX - (mouseX - transform.panX) * factor;
+  transform.panY = mouseY - (mouseY - transform.panY) * factor;
+  transform.scaleX *= factor;
+  transform.scaleY *= factor;
+  
+  document.getElementById('scaleXRange').value = Math.min(3, Math.max(0.3, transform.scaleX));
+  document.getElementById('scaleYRange').value = Math.min(3, Math.max(0.4, transform.scaleY));
+  renderView();
+}, { passive: false });
+
+panel.addEventListener('touchstart', (e) => {
+  if (e.target.closest('.stretch-controls') || e.target.closest('.anim-controls')) return;
+  if (e.touches.length === 1) {
+    isDragging = true;
+    startX = e.touches[0].clientX - transform.panX;
+    startY = e.touches[0].clientY - transform.panY;
+  } else if (e.touches.length === 2) {
+    isDragging = false;
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    initialDistance = Math.hypot(dx, dy);
+    initialScaleX = transform.scaleX;
+    initialScaleY = transform.scaleY;
+  }
+}, { passive: false });
+
+panel.addEventListener('touchmove', (e) => {
+  if (e.target.closest('.stretch-controls') || e.target.closest('.anim-controls')) return;
+  e.preventDefault();
+
+  if (e.touches.length === 1 && isDragging) {
+    transform.panX = e.touches[0].clientX - startX;
+    transform.panY = e.touches[0].clientY - startY;
+    renderView();
+  } else if (e.touches.length === 2 && initialDistance > 0) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const dist = Math.hypot(dx, dy);
+    const factor = dist / initialDistance;
+
+    const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    const rect = panel.getBoundingClientRect();
+    const cx = midX - rect.left;
+    const cy = midY - rect.top;
+
+    const targetScaleX = initialScaleX * factor;
+    const targetScaleY = initialScaleY * factor;
+    const changeFactor = targetScaleX / transform.scaleX;
+
+    transform.panX = cx - (cx - transform.panX) * changeFactor;
+    transform.panY = cy - (cy - transform.panY) * changeFactor;
+    transform.scaleX = targetScaleX;
+    transform.scaleY = targetScaleY;
+    renderView();
+  }
+}, { passive: false });
+
+function saveCanvasImage() {
+  const canvas = document.getElementById('main-canvas');
+  const link = document.createElement('a');
+  link.download = `khao_sat_ham_so_${currentType}.png`;
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+}
+
+window.onresize = () => renderView();
+window.onload = () => selectType('frac2');
+</script>
+</body>
+</html>

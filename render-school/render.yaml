@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: thayduoc-nha-truong
+    runtime: docker
+    plan: free
+    branch: website-o-nha-doc-lap
+    dockerfilePath: ./render-school/Dockerfile
+    dockerContext: ./render-school
+    buildFilter:
+      paths:
+        - render-school/**
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_SETUP_TOKEN
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.12.13

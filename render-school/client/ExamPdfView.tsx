@@ -1,0 +1,16 @@
+import React,{useEffect,useRef,useState} from 'react';
+import {getDocument,GlobalWorkerOptions} from 'pdfjs-dist';
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+GlobalWorkerOptions.workerSrc=workerUrl;
+function Page({pdf,number,width}:any){
+ const ref=useRef<HTMLDivElement>(null),canvas=useRef<HTMLCanvasElement>(null);const [visible,setVisible]=useState(false),[ratio,setRatio]=useState(1.414),[error,setError]=useState('');
+ useEffect(()=>{const observer=new IntersectionObserver(entries=>setVisible(entries[0].isIntersecting),{rootMargin:'700px'});if(ref.current)observer.observe(ref.current);return()=>observer.disconnect()},[]);
+ useEffect(()=>{if(!visible)return;let disposed=false,task:any;setError('');(async()=>{try{const page=await pdf.getPage(number);if(disposed)return;const base=page.getViewport({scale:1});setRatio(base.height/base.width);const scale=Math.min(devicePixelRatio||1,2,Math.sqrt(2500000/(width*width*base.height/base.width)));const viewport=page.getViewport({scale:width/base.width*scale});const c=canvas.current;if(!c)return;c.width=Math.ceil(viewport.width);c.height=Math.ceil(viewport.height);task=page.render({canvas:c,viewport});await task.promise}catch(e:any){if(!disposed)setError('Không hiển thị được trang '+number+'. Hãy thử mở lại đề.')}})();return()=>{disposed=true;task?.cancel();const c=canvas.current;if(c){c.width=0;c.height=0}}},[pdf,number,width,visible]);
+ return <div ref={ref} className="exam-view-page" style={{width,height:width*ratio}} aria-label={'Trang '+number}>{visible?<canvas ref={canvas}/>:<span>Trang {number}</span>}{error&&<span role="alert">{error}</span>}</div>
+}
+export default function ExamPdfView({file}:any){
+ const [pdf,setPdf]=useState<any>(null),[error,setError]=useState(''),[width,setWidth]=useState(600),[zoom,setZoom]=useState(1);const host=useRef<HTMLDivElement>(null);
+ useEffect(()=>{let disposed=false;setPdf(null);setError('');const task=getDocument({url:file.url+'?preview=1',isEvalSupported:false,useSystemFonts:true});task.promise.then(doc=>{if(disposed)return;if(doc.numPages>1000){setError('Đề quá nhiều trang. Hãy nhờ giáo viên chia nhỏ tệp.');return}setPdf(doc)}).catch(()=>{if(!disposed)setError('Không mở được đề. Hãy thử tải lại trang hoặc liên hệ giáo viên.')});return()=>{disposed=true;void task.destroy()}},[file.url]);
+ useEffect(()=>{const node=host.current;if(!node)return;const observer=new ResizeObserver(()=>setWidth(Math.max(180,node.clientWidth-24)));observer.observe(node);return()=>observer.disconnect()},[]);
+ return <div className="exam-view-only" onContextMenu={e=>e.preventDefault()}><div className="exam-view-tools"><b>Chỉ xem đề</b>{pdf&&<span>{pdf.numPages} trang · Cuộn để xem</span>}<button type="button" className="secondary" aria-label="Thu nhỏ đề" disabled={zoom<=.75} onClick={()=>setZoom(z=>Math.max(.75,z-.25))}>−</button><button type="button" className="secondary" aria-label="Phóng to đề" disabled={zoom>=2} onClick={()=>setZoom(z=>Math.min(2,z+.25))}>+</button><button type="button" className="secondary" onClick={()=>setZoom(1)}>Vừa chiều rộng</button></div><div className="exam-view-pages" ref={host}>{error?<p role="alert">{error}</p>:pdf?Array.from({length:pdf.numPages},(_,i)=><Page key={i} pdf={pdf} number={i+1} width={Math.floor(width*zoom)}/>):<p role="status">Đang mở đề…</p>}</div></div>
+}
