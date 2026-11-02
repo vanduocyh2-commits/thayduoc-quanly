@@ -1,9 +1,9 @@
 import React,{useEffect,useState} from 'react';
 import {remainingSeconds,clockText} from './examClock.mjs';
-export default function ExamClock({assignmentId,csrf}:any){
+export default function ExamClock({assignmentId,csrf,onExam}:any){
  const [clock,setClock]=useState<any>(null),[error,setError]=useState(''),[seconds,setSeconds]=useState<number|null>(null),[retry,setRetry]=useState(0);
  useEffect(()=>{let active=true;const controller=new AbortController();let pending=false;
-  async function sync(){if(pending)return;pending=true;try{const start=performance.now(),r=await fetch('/api/exams/'+encodeURIComponent(assignmentId)+'/clock',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:'{}',signal:controller.signal}),d=await r.json();if(!r.ok)throw Error(d.error||'Chưa lấy được giờ làm bài.');if(active){const value={...d,received:performance.now(),serverNow:d.serverNow+(performance.now()-start)/2};setClock(value);setSeconds(remainingSeconds(value.deadline,value.serverNow));setError('')}}catch(e:any){if(active&&e.name!=='AbortError')setError(e.message)}finally{pending=false}}
+  async function sync(){if(pending)return;pending=true;try{const start=performance.now(),r=await fetch('/api/exams/'+encodeURIComponent(assignmentId)+'/clock',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:'{}',signal:controller.signal}),d=await r.json();if(!r.ok)throw Error(d.error||'Chưa lấy được giờ làm bài.');if(active){const value={...d,received:performance.now(),serverNow:d.serverNow+(performance.now()-start)/2};setClock(value);if(d.exam)onExam?.(d.exam);setSeconds(remainingSeconds(value.deadline,value.serverNow));setError('')}}catch(e:any){if(active&&e.name!=='AbortError')setError(e.message)}finally{pending=false}}
   sync();const refresh=()=>{if(document.visibilityState==='visible')sync()};document.addEventListener('visibilitychange',refresh);const timer=setInterval(sync,60000);
   return()=>{active=false;controller.abort();clearInterval(timer);document.removeEventListener('visibilitychange',refresh)};
  },[assignmentId,csrf,retry]);
