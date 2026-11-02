@@ -900,7 +900,7 @@ def create_app(config=None):
   deadlines=[]
   if d.get('minutes'):deadlines.append(started+int(d['minutes'])*60)
   if d.get('due'):deadlines.append(int(parse_date(d['due'])))
-  return jsonify(startedAt=started*1000,deadline=min(deadlines)*1000 if deadlines else None,serverNow=current*1000,attempt=attempt,exam={**d,'questions':[{k:v for k,v in q.items() if k not in ('correct','outcome')} for q in d.get('questions',[])],'essays':[{k:v for k,v in q.items() if k not in ('correct','outcome')} for q in d.get('essays',[])]})
+  return jsonify(startedAt=started*1000,deadline=min(deadlines)*1000 if deadlines else None,serverNow=current*1000,attempt=attempt,exam={**{k:v for k,v in d.items() if k not in ('variants','answerGuide','answerNotes','resources','_reminderSent')},'questions':[{k:v for k,v in q.items() if k not in ('correct','outcome')} for q in d.get('questions',[])],'essays':[{k:v for k,v in q.items() if k not in ('correct','outcome')} for q in d.get('essays',[])]})
  @app.post('/api/school')
  @app.post('/api/exams')
  @app.post('/api/submissions')
