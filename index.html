@@ -16,6 +16,7 @@
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fade-in { animation: fadeIn 0.25s ease-out forwards; }
+    body[data-portal-role='student'] #portal-teacher,body[data-portal-role='student'] .t-tab-btn,body[data-portal-role='student'] .t-tab-content{display:none!important}body[data-portal-role='teacher'] #portal-student{display:none!important}body:not([data-portal-role='student']):not([data-portal-role='teacher']) #portal-student,body:not([data-portal-role='student']):not([data-portal-role='teacher']) #portal-teacher{display:none!important}
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 antialiased flex flex-col min-h-screen selection:bg-indigo-600 selection:text-white">
@@ -2173,6 +2174,7 @@ function drawBBTContent(ctx, w, h, info) {
 
         function loginAsTeacher(teacherObj) {
             state.sessionRole = 'teacher';
+            document.body.dataset.portalRole='teacher';
             state.currentTeacher = teacherObj;
             state.currentStudent = null;
 
@@ -2241,6 +2243,7 @@ function drawBBTContent(ctx, w, h, info) {
 
         function loginAsStudent(studentObj, initialRoomCode = '') {
             state.sessionRole = 'student';
+            document.body.dataset.portalRole='student';
             state.currentStudent = studentObj;
             state.currentTeacher = null;
 
@@ -2314,6 +2317,7 @@ function drawBBTContent(ctx, w, h, info) {
         function logoutCurrentAccount() {
             if (state.timerInterval) clearInterval(state.timerInterval);
             state.sessionRole = null;
+            delete document.body.dataset.portalRole;
             state.currentTeacher = null;
             state.currentStudent = null;
 
@@ -3686,6 +3690,7 @@ function drawBBTContent(ctx, w, h, info) {
 
         // ================= 9. ĐIỀU HƯỚNG TABS & MODAL TIỆN ÍCH =================
         function switchTeacherTab(tabId, btnEl) {
+            if(state.sessionRole!=='teacher')return;
             document.querySelectorAll('.t-tab-content').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.t-tab-btn').forEach(el => {
                 el.className = "t-tab-btn px-4 py-2.5 bg-white text-slate-600 hover:bg-slate-100 rounded-xl text-xs font-bold transition border border-slate-200 flex items-center";
@@ -3698,6 +3703,7 @@ function drawBBTContent(ctx, w, h, info) {
         }
 
         function switchStudentTab(tabId, btnEl) {
+            if(state.sessionRole!=='student')return;
             document.querySelectorAll('.s-tab-content').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.s-tab-btn').forEach(el => {
                 el.className = "s-tab-btn px-3.5 py-1.5 text-indigo-100 hover:text-white rounded-lg text-xs font-bold transition";
