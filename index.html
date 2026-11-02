@@ -17,7 +17,7 @@
         @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fade-in { animation: fadeIn 0.25s ease-out forwards; }
     body[data-portal-role='student'] #portal-teacher,body[data-portal-role='student'] .t-tab-btn,body[data-portal-role='student'] .t-tab-content{display:none!important}body[data-portal-role='teacher'] #portal-student{display:none!important}body:not([data-portal-role='student']):not([data-portal-role='teacher']) #portal-student,body:not([data-portal-role='student']):not([data-portal-role='teacher']) #portal-teacher{display:none!important}
-    </style>
+    body[data-portal-role="student"] #student-home-nav{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}body[data-portal-role="student"] .student-home-card{border:1px solid #c7d2fe;border-radius:16px;padding:20px;background:white;color:#312e81;text-align:left;font-weight:800}body[data-portal-role="student"] .student-home-card.active{background:#eef2ff;border:2px solid #6366f1}body[data-portal-role="student"] .student-home-card small{display:block;color:#64748b;font-weight:400;margin-top:6px}@media(max-width:480px){body[data-portal-role="student"] #student-home-nav{grid-template-columns:1fr}}</style>
 </head>
 <body class="bg-slate-100 text-slate-800 antialiased flex flex-col min-h-screen selection:bg-indigo-600 selection:text-white">
 
@@ -1256,7 +1256,7 @@ function drawBBTContent(ctx, w, h, info) {
                 </div>
             </div>
         <!-- ================= STUDENT PORTAL (CHỈ HỌC SINH MỚI THẤY) ================= -->
-        <div id="portal-student" class="hidden space-y-5 animate-fade-in">
+        <div id="portal-student" class="hidden space-y-5 animate-fade-in"><section aria-label="Trang học sinh"><h2 class="text-xl font-bold text-indigo-900">Không gian học tập của em</h2><nav id="student-home-nav"><button type="button" class="student-home-card active" data-student-section="s-exams" onclick="window.app.switchStudentTab('s-exams')">Đề thi và làm bài<small>Xem đề được giao và nộp bài</small></button><button type="button" class="student-home-card" data-student-section="s-progress" onclick="window.app.switchStudentTab('s-progress')">Bảng điểm của em<small>Xem kết quả thi của chính mình</small></button></nav></section>
             
             <!-- Banner Chào Mừng Học Sinh Độc Lập -->
             <div class="bg-gradient-to-r from-indigo-700 via-indigo-600 to-violet-700 text-white p-5 rounded-2xl shadow-md flex justify-between items-center flex-wrap gap-4">
@@ -2250,6 +2250,7 @@ function drawBBTContent(ctx, w, h, info) {
             document.getElementById('auth-gateway-screen').classList.add('hidden');
             document.getElementById('portal-teacher').classList.add('hidden');
             document.getElementById('portal-student').classList.remove('hidden');
+            switchStudentTab('s-exams');
 
             document.getElementById('student-welcome-title').innerText = `Thí sinh: ${studentObj.name} (SBD: ${studentObj.sbd})`;
             document.getElementById('student-welcome-class').innerText = `Lớp: ${studentObj.class} | Giáo viên hướng dẫn: Thầy Bùi Văn Được`;
@@ -3703,7 +3704,8 @@ function drawBBTContent(ctx, w, h, info) {
         }
 
         function switchStudentTab(tabId, btnEl) {
-            if(state.sessionRole!=='student')return;
+            if(state.sessionRole!=='student'||!['s-exams','s-progress'].includes(tabId))return;
+            document.querySelectorAll('[data-student-section]').forEach(el=>el.classList.toggle('active',el.dataset.studentSection===tabId));
             document.querySelectorAll('.s-tab-content').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.s-tab-btn').forEach(el => {
                 el.className = "s-tab-btn px-3.5 py-1.5 text-indigo-100 hover:text-white rounded-lg text-xs font-bold transition";
