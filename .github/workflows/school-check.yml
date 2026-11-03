@@ -1,7 +1,7 @@
 name: Check school portal
 on:
   push:
-    branches: [feature/question-bank-sync-2026-11]
+    branches: [website-o-nha-doc-lap, feature/question-bank-sync-2026-11]
     paths:
       - 'render-school/**'
       - 'Dockerfile'
